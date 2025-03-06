@@ -1,0 +1,48 @@
+{
+  "summary": string,
+  "description": string,
+  "location": string,
+  "start": {
+    "date": date,
+    "dateTime": datetime,
+    "timeZone": string
+  },
+  "end": {
+    "date": date,
+    "dateTime": datetime,
+    "timeZone": string
+  },
+  "endTimeUnspecified": boolean,
+  "recurrence": [
+    string
+  ],
+  "attendees": [
+    {
+      "email": string,
+    }
+  ],
+  "reminders": {
+    "useDefault": boolean,
+    "overrides": [
+      {
+        "method": string,
+        "minutes": integer
+      }
+    ]
+  },
+  "attachments": [
+    {
+      "fileUrl": string,
+      "title": string,
+      "mimeType": string,
+      "iconLink": string,
+      "fileId": string
+    }
+  ],
+  "birthdayProperties": {
+    "contact": string,
+    "type": string,
+    "customTypeName": string
+  },
+  "eventType": string
+}
