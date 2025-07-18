@@ -1,3 +1,6 @@
-google-api-python-client
+google-api-python-client~=2.163.0
 google-auth-httplib2
-google-auth-oauthlib
+google-auth-oauthlib~=1.2.1
+tzlocal~=5.3.1
+protobuf~=5.29.3
+html2text~=2025.4.15
