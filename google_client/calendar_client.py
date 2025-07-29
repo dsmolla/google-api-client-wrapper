@@ -1,11 +1,56 @@
 from datetime import datetime, date, time, timedelta
-from typing import Optional, List, Self
+from typing import Optional, List, Self, Union
 from google_client.auth import get_calendar_service
-from utils.datetime_util import convert_datetime_to_iso, convert_datetime_to_readable, current_datetime_local_timezone
-from dataclasses import dataclass
+from utils.datetime_util import convert_datetime_to_iso, convert_datetime_to_readable, current_datetime_local_timezone, today_start, days_from_today
+from dataclasses import dataclass, field
 import logging
+import re
+from googleapiclient.errors import HttpError
+from contextlib import contextmanager
 
 logger = logging.getLogger(__name__)
+
+# Constants
+MAX_RESULTS_LIMIT = 2500
+MAX_SUMMARY_LENGTH = 1024
+MAX_DESCRIPTION_LENGTH = 8192
+MAX_LOCATION_LENGTH = 1024
+MAX_QUERY_LENGTH = 500
+DEFAULT_MAX_RESULTS = 100
+DEFAULT_DAYS_AHEAD = 7
+
+# Custom Exception Classes
+class CalendarError(Exception):
+    """Base exception for calendar operations."""
+    pass
+
+class CalendarPermissionError(CalendarError):
+    """Raised when the user lacks permission for a calendar operation."""
+    pass
+
+class CalendarNotFoundError(CalendarError):
+    """Raised when a calendar or event is not found."""
+    pass
+
+@contextmanager
+def calendar_service():
+    """Context manager for calendar service connections with error handling."""
+    service = None
+    try:
+        service = get_calendar_service()
+        yield service
+    except HttpError as e:
+        if e.resp.status == 403:
+            raise CalendarPermissionError(f"Permission denied: {e}")
+        elif e.resp.status == 404:
+            raise CalendarNotFoundError(f"Calendar or event not found: {e}")
+        else:
+            raise CalendarError(f"Calendar API error: {e}")
+    except Exception as e:
+        raise CalendarError(f"Unexpected calendar service error: {e}")
+    finally:
+        # Clean up if needed (service doesn't require explicit cleanup)
+        pass
 
 @dataclass
 class Attendee:
@@ -23,8 +68,16 @@ class Attendee:
     def __post_init__(self):
         if not self.email:
             raise ValueError("Attendee email cannot be empty.")
+        if not self._is_valid_email(self.email):
+            raise ValueError(f"Invalid email format: {self.email}")
         if self.response_status and self.response_status not in ["needsAction", "declined", "tentative", "accepted"]:
-            raise ValueError("Invalid response status for attendee.")
+            raise ValueError(f"Invalid response status: {self.response_status}. Must be one of: needsAction, declined, tentative, accepted")
+    
+    @staticmethod
+    def _is_valid_email(email: str) -> bool:
+        """Validate email format using regex."""
+        pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
+        return re.match(pattern, email) is not None
 
     def to_dict(self) -> dict:
         attendee = {"email": self.email}
@@ -57,15 +110,25 @@ class CalendarEvent:
     start: Optional[datetime] = None
     end: Optional[datetime] = None
     htmlLink: Optional[str] = None
-    attendees: Optional[List[Attendee]] = None
-    recurrence: Optional[List[str]] = None
+    attendees: List[Attendee] = field(default_factory=list)
+    recurrence: List[str] = field(default_factory=list)
     recurringEventId: Optional[str] = None
 
     def __post_init__(self):
-        if self.attendees is None:
-            self.attendees = []
-        if self.recurrence is None:
-            self.recurrence = []
+        self._validate_datetime_range(self.start, self.end)
+        self._validate_text_field(self.summary, MAX_SUMMARY_LENGTH, "summary")
+        self._validate_text_field(self.description, MAX_DESCRIPTION_LENGTH, "description")
+        self._validate_text_field(self.location, MAX_LOCATION_LENGTH, "location")
+
+    def _validate_datetime_range(self, start: Optional[datetime], end: Optional[datetime]) -> None:
+        """Validates that start time is before end time."""
+        if start and end and start >= end:
+            raise ValueError("Event start time must be before end time")
+    
+    def _validate_text_field(self, value: Optional[str], max_length: int, field_name: str) -> None:
+        """Validates text field length and content."""
+        if value and len(value) > max_length:
+            raise ValueError(f"Event {field_name} cannot exceed {max_length} characters")
 
     @staticmethod
     def _from_google_event(google_event: dict) -> "CalendarEvent":
@@ -76,23 +139,20 @@ class CalendarEvent:
         Returns:
             A CalendarEvent instance populated with the data from the dictionary.
         """
-        attendees = [
-            Attendee(
-                email=attendee.get("email"),
-                display_name=attendee.get("displayName"),
-                response_status=attendee.get("responseStatus")
-            ) for attendee in google_event.get("attendees", [])
-        ]
-        start = google_event.get("start", {})
-        end = google_event.get("end", {})
-        if start.get("dateTime"):
-            start = datetime.fromisoformat(start["dateTime"].replace("Z", "+00:00"))
-        elif start.get("date"):
-            start = datetime.strptime(start["date"], "%Y-%m-%d")
-        if end.get("dateTime"):
-            end = datetime.fromisoformat(end["dateTime"].replace("Z", "+00:00"))
-        elif end.get("date"):
-            end = datetime.strptime(end["date"], "%Y-%m-%d")
+        attendees = []
+        for attendee_data in google_event.get("attendees", []):
+            email = attendee_data.get("email")
+            if email and Attendee._is_valid_email(email):
+                try:
+                    attendees.append(Attendee(
+                        email=email,
+                        display_name=attendee_data.get("displayName"),
+                        response_status=attendee_data.get("responseStatus")
+                    ))
+                except ValueError as e:
+                    logger.warning("Skipping invalid attendee: %s", e)
+        start = CalendarEvent._parse_datetime(google_event.get("start", {}))
+        end = CalendarEvent._parse_datetime(google_event.get("end", {}))
         return CalendarEvent(
             id=google_event.get("id"),
             summary=google_event.get("summary"),
@@ -106,66 +166,130 @@ class CalendarEvent:
             recurringEventId=google_event.get("recurringEventId"),
         )
 
+    @staticmethod
+    def _parse_datetime(datetime_data: dict) -> Optional[datetime]:
+        """Safely parse datetime from Google Calendar API response."""
+        if not datetime_data:
+            return None
+        try:
+            if datetime_data.get("dateTime"):
+                return datetime.fromisoformat(datetime_data["dateTime"].replace("Z", "+00:00"))
+            elif datetime_data.get("date"):
+                return datetime.strptime(datetime_data["date"], "%Y-%m-%d")
+        except (ValueError, TypeError) as e:
+            logger.warning("Failed to parse datetime: %s", e)
+        return None
+
     def to_dict(self) -> dict:
-        return {
-            "id": self.id,
+        """Convert CalendarEvent to dictionary format for Google Calendar API."""
+        if not self.start or not self.end:
+            raise ValueError("Event must have both start and end times")
+        
+        event_dict = {
             "summary": self.summary,
             "description": self.description,
             "location": self.location,
             "start": {"dateTime": convert_datetime_to_iso(self.start)},
             "end": {"dateTime": convert_datetime_to_iso(self.end)},
-            "htmlLink": self.htmlLink,
             "attendees": [attendee.to_dict() for attendee in self.attendees],
-            "recurrence": self.recurrence,
-            "recurringEventId": self.recurringEventId,
         }
+        
+        if self.id:
+            event_dict["id"] = self.id
+        if self.htmlLink:
+            event_dict["htmlLink"] = self.htmlLink
+        if self.recurrence:
+            event_dict["recurrence"] = self.recurrence
+        if self.recurringEventId:
+            event_dict["recurringEventId"] = self.recurringEventId
+            
+        return event_dict
+
+    @classmethod
+    def query(cls) -> "EventQueryBuilder":
+        """
+        Create a new EventQueryBuilder for building complex event queries with a fluent API.
+        
+        Returns:
+            EventQueryBuilder instance for method chaining
+            
+        Example:
+            events = (CalendarEvent.query()
+                .limit(50)
+                .in_date_range(start_date, end_date)
+                .search("meeting")
+                .in_calendar("work@company.com")
+                .execute())
+        """
+        from google_client.event_query_builder import EventQueryBuilder
+        return EventQueryBuilder(cls)
 
     @classmethod
     def list_events(
         cls,
-        number_of_results: Optional[int] = 100,
-        start: datetime = None,
-        end: datetime = None,
+        number_of_results: Optional[int] = DEFAULT_MAX_RESULTS,
+        start: Optional[datetime] = None,
+        end: Optional[datetime] = None,
         query: Optional[str] = None,
+        calendar_id: str = "primary",
     ) -> List[Self]:
-        """
-        Fetches a list of events from the primary Google Calendar within the specified date range and filters by the given query if specified.
+        """Fetches a list of events from Google Calendar within the specified date range.
         Args:
-            number_of_results: Max number of events to retrieve. Defaults to 100.
+            number_of_results: Max number of events to retrieve. Defaults to 100. Max allowed: 2500.
             start: Start date and time as a datetime object. Defaults to the start of the current day.
             end: End date and time as a datetime object. Defaults to 7 days from the start date.
             query: Query string to search events by keyword or related content.
+            calendar_id: Calendar ID to fetch events from. Defaults to 'primary'.
         Returns:
             A list of CalendarEvent objects representing the events found within the specified range.
             If no events are found, an empty list is returned.
+        Raises:
+            ValueError: If number_of_results exceeds 2500 or date range is invalid.
         """
-        logger.info("Fetching events with number_of_results=%s, start=%s, end=%s, query=%s", number_of_results, start, end, query)
-        service = get_calendar_service()
+        # Input validation
+        if number_of_results and (number_of_results < 1 or number_of_results > MAX_RESULTS_LIMIT):
+            raise ValueError(f"number_of_results must be between 1 and {MAX_RESULTS_LIMIT}")
+        if query and len(query) > MAX_QUERY_LENGTH:
+            raise ValueError(f"Query string cannot exceed {MAX_QUERY_LENGTH} characters")
+        
+        logger.info("Fetching events with number_of_results=%s, start=%s, end=%s, query=%s, calendar_id=%s", 
+                   number_of_results, start, end, query, calendar_id)
+        
         if start is None:
-            start = datetime.combine(date.today(), time.min)
+            start = today_start()
         if end is None:
-            end = datetime.combine(date.today(), time.min) + timedelta(days=7)
+            end = days_from_today(DEFAULT_DAYS_AHEAD)
+        
+        if start >= end:
+            raise ValueError("Start time must be before end time")
+            
         start_iso, end_iso = convert_datetime_to_iso(start), convert_datetime_to_iso(end)
-        try:
-            events_result = (
-                service.events()
-                .list(
-                    calendarId="primary",
-                    timeMin=start_iso,
-                    timeMax=end_iso,
-                    maxResults=number_of_results,
-                    singleEvents=True,
-                    orderBy="startTime",
-                    q=query,
-                )
-                .execute()
-            )
+        
+        with calendar_service() as service:
+            request_params = {
+                "calendarId": calendar_id,
+                "timeMin": start_iso,
+                "timeMax": end_iso,
+                "maxResults": number_of_results,
+                "singleEvents": True,
+                "orderBy": "startTime",
+            }
+            
+            if query:
+                request_params["q"] = query
+            
+            events_result = service.events().list(**request_params).execute()
             events = events_result.get("items", [])
             logger.info("Fetched %d events", len(events))
-            return [cls._from_google_event(event) for event in events]
-        except Exception as e:
-            logger.error("An error occurred while fetching events: %s", e)
-            return []
+            
+            calendar_events = []
+            for event in events:
+                try:
+                    calendar_events.append(cls._from_google_event(event))
+                except Exception as e:
+                    logger.warning("Skipping invalid event: %s", e)
+                    
+            return calendar_events
 
     @classmethod
     def get_event(cls, event_id: str) -> "CalendarEvent":
@@ -177,14 +301,11 @@ class CalendarEvent:
             A CalendarEvent object representing the event with the specified ID.
         """
         logger.info("Retrieving event with ID: %s", event_id)
-        service = get_calendar_service()
-        try:
+        
+        with calendar_service() as service:
             google_event = service.events().get(calendarId="primary", eventId=event_id).execute()
             logger.info("Event retrieved successfully")
             return cls._from_google_event(google_event)
-        except Exception as e:
-            logger.error("Error retrieving event: %s", e)
-            raise
 
     @classmethod
     def create_event(
@@ -211,7 +332,16 @@ class CalendarEvent:
             A CalendarEvent object representing the newly created event.
         """
         logger.info("Creating event with summary=%s, start=%s, end=%s", summary, start, end)
-        service = get_calendar_service()
+        # Validate input parameters
+        if start >= end:
+            raise ValueError("Event start time must be before end time")
+        if summary and len(summary) > MAX_SUMMARY_LENGTH:
+            raise ValueError(f"Event summary cannot exceed {MAX_SUMMARY_LENGTH} characters")
+        if description and len(description) > MAX_DESCRIPTION_LENGTH:
+            raise ValueError(f"Event description cannot exceed {MAX_DESCRIPTION_LENGTH} characters")
+        if location and len(location) > MAX_LOCATION_LENGTH:
+            raise ValueError(f"Event location cannot exceed {MAX_LOCATION_LENGTH} characters")
+            
         attendees_list = [{"email": attendee} for attendee in attendees] if attendees else []
         start_iso = convert_datetime_to_iso(start)
         end_iso = convert_datetime_to_iso(end)
@@ -225,154 +355,145 @@ class CalendarEvent:
         }
         if recurrence:
             event["recurrence"] = recurrence
-        try:
+            
+        with calendar_service() as service:
             event = service.events().insert(calendarId="primary", body=event).execute()
             logger.info("Event created successfully with ID: %s", event.get("id"))
             return cls._from_google_event(event)
-        except Exception as e:
-            logger.error("Error creating event: %s", e)
-            raise
 
-    def sync_changes(self) -> bool:
+    def sync_changes(self) -> None:
         """
         Updates this event in the user's Google Calendar with new details.
-        Returns:
-            True if the event was updated successfully, False otherwise.
+        Raises:
+            CalendarError: If the event update fails.
         """
         logger.info("Updating event with ID: %s", self.id)
-        service = get_calendar_service()
-        try:
+        
+        with calendar_service() as service:
             updated_event = service.events().update(calendarId="primary", eventId=self.id, body=self.to_dict()).execute()
             logger.info("Event updated successfully")
-            return True
-        except Exception as e:
-            logger.error("Error updating event: %s", e)
-            return False
 
-    def delete_event(self, delete_all_recurrence: bool = False) -> bool:
+    def delete_event(self, delete_all_recurrence: bool = False) -> None:
         """
         Deletes this event from the user's Google Calendar. Can delete a single event or all in a recurrence series.
         Args:
             delete_all_recurrence: If True, deletes all events in the recurrence series.
-        Returns:
-            True if the event was deleted successfully, False otherwise.
+        Raises:
+            CalendarError: If the event deletion fails.
         """
         logger.info("Deleting event with ID: %s, delete_all_recurrence=%s", self.id, delete_all_recurrence)
-        service = get_calendar_service()
-        try:
+        
+        with calendar_service() as service:
             if delete_all_recurrence:
                 event = service.events().get(calendarId="primary", eventId=self.id).execute()
                 recurring_event_id = event.get("recurringEventId")
                 if recurring_event_id:
                     service.events().delete(calendarId="primary", eventId=recurring_event_id).execute()
                     logger.info("All recurring events deleted successfully")
-                    return True
+                    return
             service.events().delete(calendarId="primary", eventId=self.id).execute()
             logger.info("Event deleted successfully")
-            return True
-        except Exception as e:
-            logger.error("Error deleting event: %s", e)
-            return False
 
-    def add_attendee(self, email: str) -> bool:
+    def add_attendee(self, email: str) -> None:
         """
         Adds an attendee to the event if they are not already in the list.
         Args:
             email: The email address of the attendee to be added.
-
-        Returns:
-            True if the attendee was added successfully
+        Raises:
+            CalendarError: If the attendee addition fails.
         """
         logger.info("Adding attendee with email: %s to event ID: %s", email, self.id)
         if not self.has_attendee(email):
             self.attendees.append(Attendee(email=email))
-            return self.sync_changes()
+            self.sync_changes()
 
-        return True
-
-    def remove_attendee(self, email: str) -> bool:
+    def remove_attendee(self, email: str) -> None:
         """
         Removes an attendee from the event by their email address.
         Args:
-            email:
-                The email address of the attendee to be removed.
-        Returns:
-            The updated CalendarEvent instance after removing the attendee.
+            email: The email address of the attendee to be removed.
+        Raises:
+            CalendarError: If the attendee removal fails.
         """
         self.attendees = [attendee for attendee in self.attendees if attendee.email != email]
-        return self.sync_changes()
+        self.sync_changes()
 
-    def update_summary(self, summary: str) -> bool:
+    def update_summary(self, summary: str) -> None:
         """
         Updates the summary of the event.
         Args:
             summary: The new summary for the event.
-        Returns:
-            The updated CalendarEvent instance.
+        Raises:
+            CalendarError: If the summary update fails.
         """
         logger.info("Updating summary for event ID: %s to %s", self.id, summary)
+        self._validate_text_field(summary, MAX_SUMMARY_LENGTH, "summary")
         self.summary = summary
-        return self.sync_changes()
+        self.sync_changes()
 
-    def update_description(self, description: str) -> bool:
+    def update_description(self, description: str) -> None:
         """
         Updates the description of the event.
         Args:
             description: The new description for the event.
-        Returns:
-            The updated CalendarEvent instance.
+        Raises:
+            CalendarError: If the description update fails.
         """
         logger.info("Updating description for event ID: %s", self.id)
+        self._validate_text_field(description, MAX_DESCRIPTION_LENGTH, "description")
         self.description = description
-        return self.sync_changes()
+        self.sync_changes()
 
-    def update_location(self, location: str) -> bool:
+    def update_location(self, location: str) -> None:
         """
         Updates the location of the event.
         Args:
             location: The new location for the event.
-        Returns:
-            The updated CalendarEvent instance.
+        Raises:
+            CalendarError: If the location update fails.
         """
         logger.info("Updating location for event ID: %s to %s", self.id, location)
+        self._validate_text_field(location, MAX_LOCATION_LENGTH, "location")
         self.location = location
-        return self.sync_changes()
+        self.sync_changes()
 
-    def update_start_time(self, start: datetime) -> bool:
+    def update_start_time(self, start: datetime) -> None:
         """
         Updates the start time of the event.
         Args:
             start: The new start time as a datetime object.
-        Returns:
-            The updated CalendarEvent instance.
+        Raises:
+            CalendarError: If the start time update fails.
         """
         logger.info("Updating start time for event ID: %s to %s", self.id, start)
+        self._validate_datetime_range(start, self.end)
         self.start = start
-        return self.sync_changes()
+        self.sync_changes()
 
-    def update_end_time(self, end: datetime) -> bool:
+    def update_end_time(self, end: datetime) -> None:
         """
         Updates the end time of the event.
         Args:
             end: The new end time as a datetime object.
-        Returns:
-            The updated CalendarEvent instance.
+        Raises:
+            CalendarError: If the end time update fails.
         """
         logger.info("Updating end time for event ID: %s to %s", self.id, end)
+        self._validate_datetime_range(self.start, end)
         self.end = end
-        return self.sync_changes()
+        self.sync_changes()
 
-    def update_recurrence(self, recurrence: List[str]) -> bool:
+    def update_recurrence(self, recurrence: List[str]) -> None:
         """
         Updates the recurrence rules for the event.
         Args:
             recurrence: A list of strings defining the recurrence rules in RFC 5545 format.
-        Returns:
-            The updated CalendarEvent instance.
+        Raises:
+            CalendarError: If the recurrence update fails.
         """
         logger.info("Updating recurrence for event ID: %s", self.id)
         self.recurrence = recurrence
-        return self.sync_changes()
+        self.sync_changes()
 
     def duration(self) -> Optional[int]:
         if self.start and self.end:
@@ -386,6 +507,8 @@ class CalendarEvent:
         return False
 
     def is_all_day(self) -> bool:
+        if not self.start or not self.end:
+            return False
         return self.start.time() == time.min and self.end.time() == time.min and (self.end - self.start).days >= 1
 
     def is_past(self) -> bool:
@@ -399,6 +522,8 @@ class CalendarEvent:
         return False
 
     def is_happening_now(self) -> bool:
+        if not self.start or not self.end:
+            return False
         now = current_datetime_local_timezone()
         return self.start <= now <= self.end
 

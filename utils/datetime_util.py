@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, date, time, timedelta
 import tzlocal
 
 
@@ -66,3 +66,79 @@ def convert_datetime_to_local_timezone(date_time: datetime) -> datetime:
         A datetime object representing the local-timezone-aware timezone.
     """
     return datetime.astimezone(date_time, tzlocal.get_localzone())
+
+
+def combine_with_timezone(date_obj: date, time_obj: time) -> datetime:
+    """
+    Combines a date and time into a timezone-aware datetime using the local timezone.
+    
+    Args:
+        date_obj: The date component
+        time_obj: The time component
+        
+    Returns:
+        A timezone-aware datetime object in the local timezone
+    """
+    naive_datetime = datetime.combine(date_obj, time_obj)
+    local_tz = tzlocal.get_localzone()
+    return naive_datetime.replace(tzinfo=local_tz)
+
+
+def today_start() -> datetime:
+    """
+    Returns the start of today (00:00:00) in the local timezone.
+    
+    Returns:
+        A timezone-aware datetime representing the start of today
+    """
+    return combine_with_timezone(date.today(), time.min)
+
+
+def today_end() -> datetime:
+    """
+    Returns the end of today (23:59:59.999999) in the local timezone.
+    
+    Returns:
+        A timezone-aware datetime representing the end of today
+    """
+    return combine_with_timezone(date.today(), time.max)
+
+
+def date_start(target_date: date) -> datetime:
+    """
+    Returns the start of the specified date (00:00:00) in the local timezone.
+    
+    Args:
+        target_date: The date to get the start of
+        
+    Returns:
+        A timezone-aware datetime representing the start of the specified date
+    """
+    return combine_with_timezone(target_date, time.min)
+
+
+def date_end(target_date: date) -> datetime:
+    """
+    Returns the end of the specified date (23:59:59.999999) in the local timezone.
+    
+    Args:
+        target_date: The date to get the end of
+        
+    Returns:
+        A timezone-aware datetime representing the end of the specified date
+    """
+    return combine_with_timezone(target_date, time.max)
+
+
+def days_from_today(days: int) -> datetime:
+    """
+    Returns the start of a date that is N days from today in the local timezone.
+    
+    Args:
+        days: Number of days from today (positive for future, negative for past)
+        
+    Returns:
+        A timezone-aware datetime representing the start of the target date
+    """
+    target_date = date.today() + timedelta(days=days)
+    return date_start(target_date)

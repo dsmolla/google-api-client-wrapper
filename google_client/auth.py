@@ -15,8 +15,8 @@ def get_credentials():
         ]
     
     creds = None
-    token_path = "token.json"
-    credentials_path = "credentials.json"
+    token_path = r"C:\Users\dagms\Projects\Credentials\token.json"
+    credentials_path = r"C:\Users\dagms\Projects\Credentials\credentials.json"
     
     if os.path.exists(token_path):
         creds = Credentials.from_authorized_user_file(token_path, scopes)
