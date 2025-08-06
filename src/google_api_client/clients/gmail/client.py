@@ -1,6 +1,6 @@
 from datetime import datetime
 from typing import Optional, List, Self, Dict, Any
-from ...auth.oauth import get_gmail_service
+from ...auth.manager import auth_manager
 from ...utils.datetime import convert_datetime_to_readable, convert_datetime_to_local_timezone
 from dataclasses import dataclass, field
 import logging
@@ -34,7 +34,7 @@ def gmail_service():
     """Context manager for Gmail service connections with error handling."""
     service = None
     try:
-        service = get_gmail_service()
+        service = auth_manager.get_gmail_service()
         yield service
     except HttpError as e:
         if e.resp.status == 403:
@@ -140,19 +140,25 @@ class EmailAttachment:
         self.data = self._get_attachment_data()
         return True
 
-    def download_attachment(self, path) -> bool:
+    def download_attachment(self, directory: str) -> bool:
         """
-        Downloads the attachment from the Gmail API and saves it into the path provided.
+        Downloads the attachment from the Gmail API and saves it into the specified directory with the original filename.
         Args:
-            path: The destination path of the attachment.
+            directory: The destination directory for the attachment.
 
         Returns:
             True if the attachment was successfully downloaded.
         """
+        if not os.path.exists(directory):
+            os.makedirs(directory)
+        if not os.path.isdir(directory):
+            raise ValueError(f"Provided path '{directory}' is not a directory.")
+
+        file_path = os.path.join(directory, self.filename)
         logger.info("Downloading attachment %s[%s] from message %s to %s",
-                    self.attachment_id, self.filename, self.message_id, path)
+                    self.attachment_id, self.filename, self.message_id, file_path)
         try:
-            with open(path, 'wb') as f:
+            with open(file_path, 'wb') as f:
                 f.write(self._get_attachment_data())
         except Exception as e:
             logger.error("Error downloading attachment: %s", e)

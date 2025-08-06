@@ -1,7 +1,7 @@
 import asyncio
 from datetime import datetime
 from typing import Optional, List, Dict, Any, Union
-from ...auth.credentials import get_async_gmail_service
+from ...auth.manager import auth_manager
 from ...utils.datetime import convert_datetime_to_readable, convert_datetime_to_local_timezone
 from dataclasses import dataclass, field
 import logging
@@ -34,8 +34,12 @@ from ...exceptions.gmail import GmailError as AsyncGmailError, GmailPermissionEr
 async def async_gmail_service():
     """Async context manager for Gmail service connections with error handling."""
     try:
-        async with get_async_gmail_service() as (aiogoogle, gmail_service):
+        async with auth_manager.get_async_gmail_service() as (aiogoogle, gmail_service):
             yield aiogoogle, gmail_service
+    except FileNotFoundError as e:
+        raise AsyncGmailError(f"Credentials file not found: {e}")
+    except ValueError as e:
+        raise AsyncGmailError(f"Invalid credentials format: {e}")
     except HTTPError as e:
         if e.res.status_code == 403:
             raise AsyncGmailPermissionError(f"Permission denied: {e}")

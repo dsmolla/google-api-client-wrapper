@@ -264,7 +264,7 @@ class TestAsyncCalendarIntegration:
 class TestExceptionHandling:
     """Integration tests for exception handling."""
     
-    @patch('src.google_api_client.clients.calendar.client.get_calendar_service')
+    @patch('src.google_api_client.auth.manager.auth_manager.get_calendar_service')
     def test_calendar_permission_error_handling(self, mock_get_service):
         """Test handling of permission errors."""
         from googleapiclient.errors import HttpError
@@ -281,7 +281,7 @@ class TestExceptionHandling:
         with pytest.raises(CalendarPermissionError):
             CalendarEvent.list_events()
     
-    @patch('src.google_api_client.clients.calendar.client.get_calendar_service')
+    @patch('src.google_api_client.auth.manager.auth_manager.get_calendar_service')
     def test_calendar_not_found_error_handling(self, mock_get_service):
         """Test handling of not found errors."""
         from googleapiclient.errors import HttpError
@@ -299,7 +299,7 @@ class TestExceptionHandling:
             CalendarEvent.get_event("nonexistent_id")
     
     @pytest.mark.asyncio
-    @patch('src.google_api_client.clients.calendar.async_client.get_async_calendar_service')
+    @patch('src.google_api_client.auth.manager.auth_manager.get_async_calendar_service')
     async def test_async_error_handling(self, mock_get_service):
         """Test async error handling."""
         from aiogoogle.excs import HTTPError
@@ -310,7 +310,7 @@ class TestExceptionHandling:
         mock_error_response.status_code = 403
         http_error = HTTPError("Permission denied", res=mock_error_response)
         
-        mock_get_service.return_value.__aenter__.side_effect = http_error
+        mock_get_service.side_effect = http_error
         
         # Test: Should raise AsyncCalendarPermissionError
         with pytest.raises(AsyncCalendarPermissionError):

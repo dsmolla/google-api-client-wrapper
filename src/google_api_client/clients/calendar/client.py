@@ -1,6 +1,6 @@
 from datetime import datetime, date, time, timedelta
 from typing import Optional, List, Self, Union
-from ...auth.oauth import get_calendar_service
+from ...auth.manager import auth_manager
 from ...utils.datetime import convert_datetime_to_iso, convert_datetime_to_readable, current_datetime_local_timezone, today_start, days_from_today
 from dataclasses import dataclass, field
 import logging
@@ -37,7 +37,7 @@ def calendar_service():
     """Context manager for calendar service connections with error handling."""
     service = None
     try:
-        service = get_calendar_service()
+        service = auth_manager.get_calendar_service()
         yield service
     except HttpError as e:
         if e.resp.status == 403:

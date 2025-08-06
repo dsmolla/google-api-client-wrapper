@@ -1,7 +1,7 @@
 import asyncio
 from datetime import datetime, date, time, timedelta
 from typing import Optional, List, Union, Dict, Any
-from ...auth.credentials import get_async_calendar_service
+from ...auth.manager import auth_manager
 from ...utils.datetime import convert_datetime_to_iso, convert_datetime_to_readable, current_datetime_local_timezone, today_start, days_from_today
 from dataclasses import dataclass, field
 import logging
@@ -37,7 +37,7 @@ class AsyncCalendarNotFoundError(AsyncCalendarError):
 async def async_calendar_service():
     """Async context manager for calendar service connections with error handling."""
     try:
-        async with get_async_calendar_service() as (aiogoogle, calendar_service):
+        async with auth_manager.get_async_calendar_service() as (aiogoogle, calendar_service):
             yield aiogoogle, calendar_service
     except HTTPError as e:
         if e.res.status_code == 403:
