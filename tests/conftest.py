@@ -66,3 +66,80 @@ def mock_get_async_calendar_service():
     """Mock the async calendar service context manager."""
     with patch('src.google_api_client.auth.credentials.get_async_calendar_service') as mock:
         yield mock
+
+# Gmail-specific fixtures
+@pytest.fixture
+def mock_gmail_service():
+    """Mock Gmail service for testing."""
+    mock_service = Mock()
+    mock_users = Mock()
+    mock_service.users.return_value = mock_users
+    return mock_service
+
+@pytest.fixture
+def sample_gmail_message():
+    """Sample Gmail API message response."""
+    return {
+        "id": "msg_123",
+        "threadId": "thread_456",
+        "snippet": "This is a test email snippet...",
+        "labelIds": ["INBOX", "UNREAD"],
+        "payload": {
+            "headers": [
+                {"name": "From", "value": "sender@example.com"},
+                {"name": "To", "value": "recipient@example.com"},
+                {"name": "Subject", "value": "Test Email Subject"},
+                {"name": "Date", "value": "Mon, 15 Jan 2025 09:00:00 -0500"},
+                {"name": "Message-ID", "value": "<msg123@example.com>"}
+            ],
+            "body": {
+                "data": "VGhpcyBpcyBhIHRlc3QgZW1haWwgYm9keS4="  # Base64: "This is a test email body."
+            },
+            "mimeType": "text/plain"
+        }
+    }
+
+@pytest.fixture
+def sample_email_address():
+    """Sample email address for testing."""
+    from src.google_api_client.clients.gmail.client import EmailAddress
+    return EmailAddress(email="test@example.com", name="Test User")
+
+@pytest.fixture
+def sample_async_email_address():
+    """Sample async email address for testing."""
+    from src.google_api_client.clients.gmail.async_client import AsyncEmailAddress
+    return AsyncEmailAddress(email="test@example.com", name="Test User")
+
+@pytest.fixture
+def sample_email_attachment():
+    """Sample email attachment for testing."""
+    from src.google_api_client.clients.gmail.client import EmailAttachment
+    return EmailAttachment(
+        filename="test.pdf",
+        content_type="application/pdf",
+        size=1024,
+        attachment_id="att_123",
+        message_id="msg_456"
+    )
+
+@pytest.fixture
+def sample_gmail_label():
+    """Sample Gmail label for testing."""
+    return {
+        "id": "label_123",
+        "name": "Important",
+        "type": "user"
+    }
+
+@pytest.fixture
+def mock_get_gmail_service():
+    """Mock the get_gmail_service function."""
+    with patch('src.google_api_client.auth.oauth.get_gmail_service') as mock:
+        yield mock
+
+@pytest.fixture
+def mock_get_async_gmail_service():
+    """Mock the async Gmail service context manager."""
+    with patch('src.google_api_client.auth.credentials.get_async_gmail_service') as mock:
+        yield mock

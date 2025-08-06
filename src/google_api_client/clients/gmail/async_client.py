@@ -1,6 +1,7 @@
+import asyncio
 from datetime import datetime
-from typing import Optional, List, Self, Dict, Any
-from ...auth.oauth import get_gmail_service
+from typing import Optional, List, Dict, Any, Union
+from ...auth.credentials import get_async_gmail_service
 from ...utils.datetime import convert_datetime_to_readable, convert_datetime_to_local_timezone
 from dataclasses import dataclass, field
 import logging
@@ -14,8 +15,8 @@ import mimetypes
 import html
 import os
 from html2text import html2text
-from googleapiclient.errors import HttpError
-from contextlib import contextmanager
+from contextlib import asynccontextmanager
+from aiogoogle.excs import HTTPError
 import re
 
 logger = logging.getLogger(__name__)
@@ -27,31 +28,26 @@ MAX_BODY_LENGTH = 25000000  # ~25MB Gmail limit
 DEFAULT_MAX_RESULTS = 30
 
 # Import exceptions from centralized location
-from ...exceptions.gmail import GmailError, GmailPermissionError, EmailNotFoundError
+from ...exceptions.gmail import GmailError as AsyncGmailError, GmailPermissionError as AsyncGmailPermissionError, EmailNotFoundError as AsyncEmailNotFoundError
 
-@contextmanager
-def gmail_service():
-    """Context manager for Gmail service connections with error handling."""
-    service = None
+@asynccontextmanager
+async def async_gmail_service():
+    """Async context manager for Gmail service connections with error handling."""
     try:
-        service = get_gmail_service()
-        yield service
-    except HttpError as e:
-        if e.resp.status == 403:
-            raise GmailPermissionError(f"Permission denied: {e}")
-        elif e.resp.status == 404:
-            raise EmailNotFoundError(f"Email or label not found: {e}")
+        async with get_async_gmail_service() as (aiogoogle, gmail_service):
+            yield aiogoogle, gmail_service
+    except HTTPError as e:
+        if e.res.status_code == 403:
+            raise AsyncGmailPermissionError(f"Permission denied: {e}")
+        elif e.res.status_code == 404:
+            raise AsyncEmailNotFoundError(f"Email or label not found: {e}")
         else:
-            raise GmailError(f"Gmail API error: {e}")
+            raise AsyncGmailError(f"Gmail API error: {e}")
     except Exception as e:
-        raise GmailError(f"Unexpected Gmail service error: {e}")
-    finally:
-        # Clean up if needed (service doesn't require explicit cleanup)
-        pass
-
+        raise AsyncGmailError(f"Unexpected Gmail service error: {e}")
 
 @dataclass
-class EmailAddress:
+class AsyncEmailAddress:
     """
     Represents an email address with name and email.
     Args:
@@ -89,9 +85,8 @@ class EmailAddress:
             return f"{self.name} <{self.email}>"
         return self.email
 
-
 @dataclass
-class EmailAttachment:
+class AsyncEmailAttachment:
     """
     Represents an email attachment.
     Args:
@@ -131,18 +126,18 @@ class EmailAttachment:
             "message_id": self.message_id,
         }
 
-    def load_data(self) -> bool:
+    async def load_data(self) -> bool:
         """
         Downloads the attachment from the Gmail API and loads it into the data variable.
         Returns:
             True if the attachment was successfully loaded.
         """
-        self.data = self._get_attachment_data()
+        self.data = await self._get_attachment_data()
         return True
 
-    def download_attachment(self, path) -> bool:
+    async def download_attachment(self, path: str) -> bool:
         """
-        Downloads the attachment from the Gmail API and saves it into the path provided.
+        Downloads the attachment from the Gmail API and saves it to the specified path.
         Args:
             path: The destination path of the attachment.
 
@@ -152,15 +147,15 @@ class EmailAttachment:
         logger.info("Downloading attachment %s[%s] from message %s to %s",
                     self.attachment_id, self.filename, self.message_id, path)
         try:
+            attachment_data = await self._get_attachment_data()
             with open(path, 'wb') as f:
-                f.write(self._get_attachment_data())
+                f.write(attachment_data)
+            return True
         except Exception as e:
             logger.error("Error downloading attachment: %s", e)
             raise
 
-        return True
-
-    def _get_attachment_data(self) -> bytes:
+    async def _get_attachment_data(self) -> bytes:
         """
         Retrieves the attachment in bytes from a message.
 
@@ -169,23 +164,24 @@ class EmailAttachment:
         """
         logger.info("Retrieving attachment %s from message %s", self.attachment_id, self.message_id)
         
-        with gmail_service() as service:
+        async with async_gmail_service() as (aiogoogle, service):
             try:
-                attachment = service.users().messages().attachments().get(
-                    userId='me',
-                    messageId=self.message_id,
-                    id=self.attachment_id
-                ).execute()
-
+                attachment = await aiogoogle.as_user(
+                    service.users.messages.attachments.get(
+                        userId='me',
+                        messageId=self.message_id,
+                        id=self.attachment_id
+                    )
+                )
+                
                 data = attachment['data']
                 return base64.urlsafe_b64decode(data + '===')
             except Exception as e:
                 logger.error("Error downloading attachment: %s", e)
                 raise
 
-
 @dataclass
-class Label:
+class AsyncLabel:
     """
     Represents a Gmail label.
     Args:
@@ -204,17 +200,19 @@ class Label:
             raise ValueError("Label name cannot be empty")
 
     @classmethod
-    def list_labels(cls) -> List["Label"]:
+    async def list_labels(cls) -> List["AsyncLabel"]:
         """
         Fetches a list of labels from Gmail.
         Returns:
-            A list of Label objects representing the labels.
+            A list of AsyncLabel objects representing the labels.
         """
         logger.info("Fetching labels from Gmail")
         
-        with gmail_service() as service:
+        async with async_gmail_service() as (aiogoogle, service):
             try:
-                labels_response = service.users().labels().list(userId='me').execute()
+                labels_response = await aiogoogle.as_user(
+                    service.users.labels.list(userId='me')
+                )
                 labels = labels_response.get('labels', [])
                 logger.info("Found %d labels", len(labels))
 
@@ -232,23 +230,25 @@ class Label:
                 raise
 
     @classmethod
-    def create_label(cls, name: str) -> "Label":
+    async def create_label(cls, name: str) -> "AsyncLabel":
         """
         Creates a new label in Gmail.
         Args:
             name: The name of the label to create.
 
         Returns:
-            A Label object representing the created label including its ID, name, and type.
+            An AsyncLabel object representing the created label.
         """
         logger.info("Creating label with name: %s", name)
         
-        with gmail_service() as service:
+        async with async_gmail_service() as (aiogoogle, service):
             try:
-                label = service.users().labels().create(
-                    userId='me',
-                    body={'name': name, 'type': 'user'}
-                ).execute()
+                label = await aiogoogle.as_user(
+                    service.users.labels.create(
+                        userId='me',
+                        json={'name': name, 'type': 'user'}
+                    )
+                )
                 return cls(
                     id=label.get('id'),
                     name=label.get('name'),
@@ -259,20 +259,22 @@ class Label:
                 raise
 
     @classmethod
-    def get_label(cls, label_id: str) -> "Label":
+    async def get_label(cls, label_id: str) -> "AsyncLabel":
         """
         Retrieves a specific label by its ID.
         Args:
             label_id: The unique identifier of the label to retrieve.
 
         Returns:
-            A Label object representing the label including its ID, name, and type.
+            An AsyncLabel object representing the label.
         """
         logger.info("Retrieving label with ID: %s", label_id)
         
-        with gmail_service() as service:
+        async with async_gmail_service() as (aiogoogle, service):
             try:
-                label = service.users().labels().get(userId='me', id=label_id).execute()
+                label = await aiogoogle.as_user(
+                    service.users.labels.get(userId='me', id=label_id)
+                )
                 return cls(
                     id=label.get('id'),
                     name=label.get('name'),
@@ -282,7 +284,7 @@ class Label:
                 logger.error("Error retrieving label: %s", e)
                 raise
 
-    def delete_label(self) -> bool:
+    async def delete_label(self) -> bool:
         """
         Deletes this label.
 
@@ -291,33 +293,37 @@ class Label:
         """
         logger.info("Deleting label with ID: %s", self.id)
         
-        with gmail_service() as service:
+        async with async_gmail_service() as (aiogoogle, service):
             try:
-                service.users().labels().delete(userId='me', id=self.id).execute()
+                await aiogoogle.as_user(
+                    service.users.labels.delete(userId='me', id=self.id)
+                )
                 logger.info("Label deleted successfully")
                 return True
             except Exception as e:
                 logger.error("Error deleting label: %s", e)
                 return False
 
-    def update_label(self, new_name: str) -> "Label":
+    async def update_label(self, new_name: str) -> "AsyncLabel":
         """
         Updates the name of this label.
         Args:
             new_name: The new name for the label.
 
         Returns:
-            The updated Label object.
+            The updated AsyncLabel object.
         """
         logger.info("Updating label %s to new name: %s", self.id, new_name)
         
-        with gmail_service() as service:
+        async with async_gmail_service() as (aiogoogle, service):
             try:
-                updated_label = service.users().labels().patch(
-                    userId='me',
-                    id=self.id,
-                    body={'name': new_name}
-                ).execute()
+                updated_label = await aiogoogle.as_user(
+                    service.users.labels.patch(
+                        userId='me',
+                        id=self.id,
+                        json={'name': new_name}
+                    )
+                )
                 self.name = updated_label.get('name')
                 return self
             except Exception as e:
@@ -325,11 +331,10 @@ class Label:
                 raise
 
     def __repr__(self):
-        return f"Label(id={self.id}, name={self.name}, type={self.type})"
-
+        return f"AsyncLabel(id={self.id}, name={self.name}, type={self.type})"
 
 @dataclass
-class EmailMessage:
+class AsyncEmailMessage:
     """
     Represents a Gmail message with various attributes.
     Args:
@@ -355,14 +360,14 @@ class EmailMessage:
     thread_id: Optional[str] = None
     reply_to_id: Optional[str] = None
     subject: Optional[str] = None
-    sender: Optional[EmailAddress] = None
-    recipients: List[EmailAddress] = field(default_factory=list)
-    cc_recipients: List[EmailAddress] = field(default_factory=list)
-    bcc_recipients: List[EmailAddress] = field(default_factory=list)
+    sender: Optional[AsyncEmailAddress] = None
+    recipients: List[AsyncEmailAddress] = field(default_factory=list)
+    cc_recipients: List[AsyncEmailAddress] = field(default_factory=list)
+    bcc_recipients: List[AsyncEmailAddress] = field(default_factory=list)
     date_time: Optional[datetime] = None
     body_text: Optional[str] = None
     body_html: Optional[str] = None
-    attachments: List[EmailAttachment] = field(default_factory=list)
+    attachments: List[AsyncEmailAttachment] = field(default_factory=list)
     label_ids: List[str] = field(default_factory=list)
     is_read: bool = False
     is_starred: bool = False
@@ -420,11 +425,11 @@ class EmailMessage:
         return body_text, body_html
 
     @staticmethod
-    def _extract_attachments(message_id: str, payload: dict) -> List[EmailAttachment]:
+    def _extract_attachments(message_id: str, payload: dict) -> List[AsyncEmailAttachment]:
         """
         Extracts attachment information from Gmail message payload.
         Returns:
-            A list of EmailAttachment objects.
+            A list of AsyncEmailAttachment objects.
         """
         attachments = []
 
@@ -432,7 +437,7 @@ class EmailMessage:
             for part in parts:
                 if part.get('filename') and part.get('body', {}).get('attachmentId'):
                     try:
-                        attachment = EmailAttachment(
+                        attachment = AsyncEmailAttachment(
                             filename=part['filename'],
                             content_type=part.get('mimeType', 'application/octet-stream'),
                             size=part.get('body', {}).get('size', 0),
@@ -451,14 +456,14 @@ class EmailMessage:
         return attachments
 
     @staticmethod
-    def _from_gmail_message(gmail_message: dict) -> "EmailMessage":
+    def _from_gmail_message(gmail_message: dict) -> "AsyncEmailMessage":
         """
-        Creates an EmailMessage instance from a Gmail API response.
+        Creates an AsyncEmailMessage instance from a Gmail API response.
         Args:
             gmail_message: A dictionary containing message data from Gmail API.
 
         Returns:
-            An EmailMessage instance populated with the data from the dictionary.
+            An AsyncEmailMessage instance populated with the data from the dictionary.
         """
         headers = {}
         payload = gmail_message.get('payload', {})
@@ -468,15 +473,15 @@ class EmailMessage:
             headers[header['name'].lower()] = header['value']
 
         # Parse email addresses
-        def parse_email_addresses(header_value: str) -> List[EmailAddress]:
+        def parse_email_addresses(header_value: str) -> List[AsyncEmailAddress]:
             if not header_value:
                 return []
 
             addresses = []
             for name, email in getaddresses([header_value]):
-                if email and EmailAddress._is_valid_email(email):
+                if email and AsyncEmailAddress._is_valid_email(email):
                     try:
-                        addresses.append(EmailAddress(email=email, name=name if name else None))
+                        addresses.append(AsyncEmailAddress(email=email, name=name if name else None))
                     except ValueError as e:
                         logger.warning("Skipping invalid email address: %s", e)
             return addresses
@@ -491,11 +496,11 @@ class EmailMessage:
         bcc_recipients = parse_email_addresses(headers.get('bcc', ''))
 
         # Extract body
-        body_text, body_html = EmailMessage._extract_body(payload)
+        body_text, body_html = AsyncEmailMessage._extract_body(payload)
 
         # Extract attachments
         message_id = gmail_message.get('id')
-        attachments = EmailMessage._extract_attachments(message_id, payload)
+        attachments = AsyncEmailMessage._extract_attachments(message_id, payload)
 
         # Parse date
         date_received = None
@@ -515,7 +520,7 @@ class EmailMessage:
         is_starred = 'STARRED' in labels
         is_important = 'IMPORTANT' in labels
 
-        return EmailMessage(
+        return AsyncEmailMessage(
             message_id=gmail_message.get('id'),
             thread_id=gmail_message.get('threadId'),
             subject=headers.get('subject', "").strip(),
@@ -545,7 +550,6 @@ class EmailMessage:
             bcc: Optional[List[str]] = None,
             attachments: Optional[List[str]] = None,
             reply_to_message_id: Optional[str] = None
-
     ) -> str:
         """
         Creates a MIMEText email message.
@@ -560,7 +564,7 @@ class EmailMessage:
             reply_to_message_id: ID of message this is replying to (optional).
 
         Returns:
-            A MIMEText object representing the email message.
+            A base64 encoded string representing the email message.
         """
         if not to:
             raise ValueError("At least one recipient is required.")
@@ -633,32 +637,32 @@ class EmailMessage:
         return raw_message
 
     @classmethod
-    def query(cls) -> "EmailQueryBuilder":
+    def query(cls) -> "AsyncEmailQueryBuilder":
         """
-        Create a new EmailQueryBuilder for building complex email queries with a fluent API.
+        Create a new AsyncEmailQueryBuilder for building complex email queries with a fluent API.
         
         Returns:
-            EmailQueryBuilder instance for method chaining
+            AsyncEmailQueryBuilder instance for method chaining
             
         Example:
-            emails = (EmailMessage.query()
+            emails = await (AsyncEmailMessage.query()
                 .limit(50)
                 .from_sender("sender@example.com")
                 .search("meeting")
                 .with_attachments()
                 .execute())
         """
-        from .query_builder import EmailQueryBuilder
-        return EmailQueryBuilder(cls)
+        from .async_query_builder import AsyncEmailQueryBuilder
+        return AsyncEmailQueryBuilder(cls)
 
     @classmethod
-    def list_emails(
+    async def list_emails(
             cls,
-            max_results: Optional[int] = 30,
+            max_results: Optional[int] = DEFAULT_MAX_RESULTS,
             query: Optional[str] = None,
             include_spam_trash: bool = False,
             label_ids: Optional[List[str]] = None
-    ) -> List[Self]:
+    ) -> List["AsyncEmailMessage"]:
         """
         Fetches a list of messages from Gmail with optional filtering.
 
@@ -669,7 +673,7 @@ class EmailMessage:
             label_ids: List of label IDs to filter by.
 
         Returns:
-            A list of EmailMessage objects representing the messages found.
+            A list of AsyncEmailMessage objects representing the messages found.
             If no messages are found, an empty list is returned.
         """
         # Input validation
@@ -679,7 +683,7 @@ class EmailMessage:
         logger.info("Fetching messages with max_results=%s, query=%s, include_spam_trash=%s, label_ids=%s",
                     max_results, query, include_spam_trash, label_ids)
 
-        with gmail_service() as service:
+        async with async_gmail_service() as (aiogoogle, service):
             # Get list of message IDs
             request_params = {
                 'userId': 'me',
@@ -693,28 +697,34 @@ class EmailMessage:
                 request_params['labelIds'] = label_ids
 
             try:
-                result = service.users().messages().list(**request_params).execute()
+                result = await aiogoogle.as_user(
+                    service.users.messages.list(**request_params)
+                )
                 messages = result.get('messages', [])
 
                 logger.info("Found %d message IDs", len(messages))
 
-                # Fetch full message details
-                email_messages = []
-                for message in messages:
-                    try:
-                        email_messages.append(cls.get_email(message['id']))
-                    except Exception as e:
-                        logger.warning("Failed to fetch message: %s", e)
+                # Fetch full message details concurrently
+                tasks = [cls.get_email(message['id']) for message in messages]
+                email_messages = await asyncio.gather(*tasks, return_exceptions=True)
 
-                logger.info("Successfully fetched %d complete messages", len(email_messages))
-                return email_messages
+                # Filter out exceptions and log them
+                valid_messages = []
+                for msg in email_messages:
+                    if isinstance(msg, Exception):
+                        logger.warning("Failed to fetch message: %s", msg)
+                    else:
+                        valid_messages.append(msg)
+
+                logger.info("Successfully fetched %d complete messages", len(valid_messages))
+                return valid_messages
 
             except Exception as e:
                 logger.error("An error occurred while fetching messages: %s", e)
                 raise
 
     @classmethod
-    def get_email(cls, message_id: str) -> "EmailMessage":
+    async def get_email(cls, message_id: str) -> "AsyncEmailMessage":
         """
         Retrieves a specific message from Gmail using its unique identifier.
 
@@ -722,17 +732,19 @@ class EmailMessage:
             message_id: The unique identifier of the message to be retrieved.
 
         Returns:
-            An EmailMessage object representing the message with the specified ID.
+            An AsyncEmailMessage object representing the message with the specified ID.
         """
         logger.info("Retrieving message with ID: %s", message_id)
         
-        with gmail_service() as service:
+        async with async_gmail_service() as (aiogoogle, service):
             try:
-                gmail_message = service.users().messages().get(
-                    userId='me',
-                    id=message_id,
-                    format='full'
-                ).execute()
+                gmail_message = await aiogoogle.as_user(
+                    service.users.messages.get(
+                        userId='me',
+                        id=message_id,
+                        format='full'
+                    )
+                )
                 logger.info("Message retrieved successfully")
                 return cls._from_gmail_message(gmail_message)
             except Exception as e:
@@ -740,7 +752,7 @@ class EmailMessage:
                 raise
 
     @classmethod
-    def send_email(
+    async def send_email(
             cls,
             to: List[str],
             subject: Optional[str] = None,
@@ -751,7 +763,7 @@ class EmailMessage:
             attachments: Optional[List[str]] = None,
             reply_to_message_id: Optional[str] = None,
             thread_id: Optional[str] = None
-    ) -> Self:
+    ) -> "AsyncEmailMessage":
         """
         Sends a new email message.
 
@@ -767,7 +779,7 @@ class EmailMessage:
             thread_id: ID of the thread to which this message belongs (optional).
 
         Returns:
-            An EmailMessage object representing the message sent.
+            An AsyncEmailMessage object representing the message sent.
         """
         logger.info("Sending message with subject=%s, to=%s", subject, to)
 
@@ -783,70 +795,80 @@ class EmailMessage:
             reply_to_message_id=reply_to_message_id
         )
 
-        with gmail_service() as service:
+        async with async_gmail_service() as (aiogoogle, service):
             try:
-                send_result = service.users().messages().send(
-                    userId='me',
-                    body={'raw': raw_message, 'threadId': thread_id}
-                ).execute()
+                send_result = await aiogoogle.as_user(
+                    service.users.messages.send(
+                        userId='me',
+                        json={'raw': raw_message, 'threadId': thread_id}
+                    )
+                )
 
                 logger.info("Message sent successfully with ID: %s", send_result.get('id'))
-                return cls.get_email(send_result['id'])
+                return await cls.get_email(send_result['id'])
 
             except Exception as e:
                 logger.error("Error sending message: %s", e)
                 raise
 
     @classmethod
-    def batch_get_emails(cls, message_ids: List[str]) -> List["EmailMessage"]:
+    async def batch_get_emails(cls, message_ids: List[str]) -> List["AsyncEmailMessage"]:
         """
-        Retrieves multiple emails.
+        Retrieves multiple emails concurrently.
         
         Args:
             message_ids: List of message IDs to retrieve
             
         Returns:
-            List of EmailMessage objects
+            List of AsyncEmailMessage objects
         """
         logger.info("Batch retrieving %d messages", len(message_ids))
         
-        email_messages = []
-        for message_id in message_ids:
-            try:
-                email_messages.append(cls.get_email(message_id))
-            except Exception as e:
-                logger.warning("Failed to fetch message %s: %s", message_id, e)
+        tasks = [cls.get_email(message_id) for message_id in message_ids]
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        
+        # Filter out exceptions and log them
+        valid_messages = []
+        for result in results:
+            if isinstance(result, Exception):
+                logger.warning("Failed to fetch message: %s", result)
+            else:
+                valid_messages.append(result)
                 
-        return email_messages
+        return valid_messages
 
     @classmethod
-    def batch_send_emails(cls, email_data_list: List[Dict[str, Any]]) -> List["EmailMessage"]:
+    async def batch_send_emails(cls, email_data_list: List[Dict[str, Any]]) -> List["AsyncEmailMessage"]:
         """
-        Sends multiple emails.
+        Sends multiple emails concurrently.
         
         Args:
             email_data_list: List of dictionaries containing email parameters
             
         Returns:
-            List of sent EmailMessage objects
+            List of sent AsyncEmailMessage objects
         """
         logger.info("Batch sending %d emails", len(email_data_list))
         
-        sent_messages = []
-        for email_data in email_data_list:
-            try:
-                sent_messages.append(cls.send_email(**email_data))
-            except Exception as e:
-                logger.warning("Failed to send email: %s", e)
+        tasks = [cls.send_email(**email_data) for email_data in email_data_list]
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        
+        # Filter out exceptions and log them
+        valid_messages = []
+        for result in results:
+            if isinstance(result, Exception):
+                logger.warning("Failed to send email: %s", result)
+            else:
+                valid_messages.append(result)
                 
-        return sent_messages
+        return valid_messages
 
-    def reply(
+    async def reply(
             self,
             body_text: Optional[str] = None,
             body_html: Optional[str] = None,
             attachments: Optional[List[str]] = None
-    ) -> Self:
+    ) -> "AsyncEmailMessage":
         """
         Sends a reply to the current email message.
         Args:
@@ -854,7 +876,7 @@ class EmailMessage:
             body_html: HTML body of the email.
             attachments: List of file paths to attach (optional).
         Returns:
-            An EmailMessage object representing the message sent.
+            An AsyncEmailMessage object representing the message sent.
         """
         if self.is_from('me'):
             to = self.get_recipient_emails()
@@ -862,7 +884,7 @@ class EmailMessage:
             to = [self.sender.email]
 
         logger.info("Replying to message %s", self.message_id)
-        return EmailMessage.send_email(
+        return await AsyncEmailMessage.send_email(
             to=to,
             subject=self.subject,
             body_text=body_text,
@@ -872,7 +894,7 @@ class EmailMessage:
             thread_id=self.thread_id
         )
 
-    def mark_as_read(self) -> bool:
+    async def mark_as_read(self) -> bool:
         """
         Marks a message as read by removing the UNREAD label.
 
@@ -881,13 +903,15 @@ class EmailMessage:
         """
         logger.info("Marking message as read: %s", self.message_id)
         
-        with gmail_service() as service:
+        async with async_gmail_service() as (aiogoogle, service):
             try:
-                service.users().messages().modify(
-                    userId='me',
-                    id=self.message_id,
-                    body={'removeLabelIds': ['UNREAD']}
-                ).execute()
+                await aiogoogle.as_user(
+                    service.users.messages.modify(
+                        userId='me',
+                        id=self.message_id,
+                        json={'removeLabelIds': ['UNREAD']}
+                    )
+                )
                 self.is_read = True
                 logger.info("Message marked as read successfully")
                 return True
@@ -895,7 +919,7 @@ class EmailMessage:
                 logger.error("Error marking message as read: %s", e)
                 return False
 
-    def mark_as_unread(self) -> bool:
+    async def mark_as_unread(self) -> bool:
         """
         Marks a message as unread by adding the UNREAD label.
 
@@ -904,13 +928,15 @@ class EmailMessage:
         """
         logger.info("Marking message as unread: %s", self.message_id)
         
-        with gmail_service() as service:
+        async with async_gmail_service() as (aiogoogle, service):
             try:
-                service.users().messages().modify(
-                    userId='me',
-                    id=self.message_id,
-                    body={'addLabelIds': ['UNREAD']}
-                ).execute()
+                await aiogoogle.as_user(
+                    service.users.messages.modify(
+                        userId='me',
+                        id=self.message_id,
+                        json={'addLabelIds': ['UNREAD']}
+                    )
+                )
                 self.is_read = False
                 logger.info("Message marked as unread successfully")
                 return True
@@ -918,7 +944,7 @@ class EmailMessage:
                 logger.error("Error marking message as unread: %s", e)
                 return False
 
-    def add_label(self, label_ids: List[str]) -> bool:
+    async def add_label(self, label_ids: List[str]) -> bool:
         """
         Adds labels to a message.
 
@@ -930,13 +956,15 @@ class EmailMessage:
         """
         logger.info("Adding labels %s to message: %s", label_ids, self.message_id)
         
-        with gmail_service() as service:
+        async with async_gmail_service() as (aiogoogle, service):
             try:
-                service.users().messages().modify(
-                    userId='me',
-                    id=self.message_id,
-                    body={'addLabelIds': label_ids}
-                ).execute()
+                await aiogoogle.as_user(
+                    service.users.messages.modify(
+                        userId='me',
+                        id=self.message_id,
+                        json={'addLabelIds': label_ids}
+                    )
+                )
                 # Update local state
                 for label_id in label_ids:
                     if label_id not in self.label_ids:
@@ -947,7 +975,7 @@ class EmailMessage:
                 logger.error("Error adding labels: %s", e)
                 return False
 
-    def remove_label(self, label_ids: List[str]) -> bool:
+    async def remove_label(self, label_ids: List[str]) -> bool:
         """
         Removes labels from a message.
 
@@ -959,13 +987,15 @@ class EmailMessage:
         """
         logger.info("Removing labels %s from message: %s", label_ids, self.message_id)
         
-        with gmail_service() as service:
+        async with async_gmail_service() as (aiogoogle, service):
             try:
-                service.users().messages().modify(
-                    userId='me',
-                    id=self.message_id,
-                    body={'removeLabelIds': label_ids}
-                ).execute()
+                await aiogoogle.as_user(
+                    service.users.messages.modify(
+                        userId='me',
+                        id=self.message_id,
+                        json={'removeLabelIds': label_ids}
+                    )
+                )
                 # Update local state
                 for label_id in label_ids:
                     if label_id in self.label_ids:
@@ -976,7 +1006,7 @@ class EmailMessage:
                 logger.error("Error removing labels: %s", e)
                 return False
 
-    def delete_email(self, permanent: bool = False) -> bool:
+    async def delete_email(self, permanent: bool = False) -> bool:
         """
         Deletes a message (moves to trash or permanently deletes).
 
@@ -988,13 +1018,17 @@ class EmailMessage:
         """
         logger.info("Deleting message: %s, permanent=%s", self.message_id, permanent)
         
-        with gmail_service() as service:
+        async with async_gmail_service() as (aiogoogle, service):
             try:
                 if permanent:
-                    service.users().messages().delete(userId='me', id=self.message_id).execute()
+                    await aiogoogle.as_user(
+                        service.users.messages.delete(userId='me', id=self.message_id)
+                    )
                     logger.info("Message permanently deleted")
                 else:
-                    service.users().messages().trash(userId='me', id=self.message_id).execute()
+                    await aiogoogle.as_user(
+                        service.users.messages.trash(userId='me', id=self.message_id)
+                    )
                     logger.info("Message moved to trash")
                 return True
             except Exception as e:

@@ -8,6 +8,7 @@ from src.google_api_client.utils.datetime import today_start, days_from_today
 
 
 @pytest.mark.integration
+@pytest.mark.calendar
 class TestCalendarIntegration:
     """Integration tests for calendar functionality with mocked API calls."""
     
