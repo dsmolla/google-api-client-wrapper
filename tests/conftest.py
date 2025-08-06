@@ -46,23 +46,23 @@ def sample_google_event():
 @pytest.fixture
 def sample_datetime():
     """Sample timezone-aware datetime for testing."""
-    from utils.datetime_util import combine_with_timezone
+    from src.google_api_client.utils.datetime import combine_with_timezone
     return combine_with_timezone(date(2025, 1, 15), datetime.min.time().replace(hour=9))
 
 @pytest.fixture
 def sample_datetime_end():
     """Sample end datetime for testing."""
-    from utils.datetime_util import combine_with_timezone
+    from src.google_api_client.utils.datetime import combine_with_timezone
     return combine_with_timezone(date(2025, 1, 15), datetime.min.time().replace(hour=10))
 
 @pytest.fixture
 def mock_get_calendar_service():
     """Mock the get_calendar_service function."""
-    with patch('google_client.auth.get_calendar_service') as mock:
+    with patch('src.google_api_client.auth.oauth.get_calendar_service') as mock:
         yield mock
 
 @pytest.fixture
 def mock_get_async_calendar_service():
     """Mock the async calendar service context manager."""
-    with patch('google_client.async_auth.get_async_calendar_service') as mock:
+    with patch('src.google_api_client.auth.credentials.get_async_calendar_service') as mock:
         yield mock
