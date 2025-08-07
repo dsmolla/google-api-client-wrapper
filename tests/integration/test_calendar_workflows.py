@@ -12,14 +12,11 @@ from src.google_api_client.utils.datetime import today_start, days_from_today
 class TestCalendarIntegration:
     """Integration tests for calendar functionality with mocked API calls."""
     
-    @patch('src.google_api_client.clients.calendar.client.calendar_service')
-    def test_end_to_end_event_lifecycle(self, mock_context, sample_google_event):
+    def test_end_to_end_event_lifecycle(self, mock_get_calendar_service, mock_calendar_service, sample_google_event):
         """Test complete event lifecycle: create, read, update, delete."""
-        # Setup mock service
-        mock_service = Mock()
+        # Setup mock service using fixture
         mock_events = Mock()
-        mock_service.events.return_value = mock_events
-        mock_context.return_value.__enter__.return_value = mock_service
+        mock_calendar_service.events.return_value = mock_events
         
         # Mock responses for different operations
         created_event = sample_google_event.copy()
@@ -63,14 +60,11 @@ class TestCalendarIntegration:
         event.delete_event()
         mock_events.delete.assert_called_once_with(calendarId="primary", eventId=event.id)
     
-    @patch('src.google_api_client.clients.calendar.client.calendar_service')
-    def test_query_builder_integration(self, mock_context, sample_google_event):
+    def test_query_builder_integration(self, mock_get_calendar_service, mock_calendar_service, sample_google_event):
         """Test query builder with complex filters."""
-        # Setup mock
-        mock_service = Mock()
+        # Setup mock using fixture
         mock_events = Mock()
-        mock_service.events.return_value = mock_events
-        mock_context.return_value.__enter__.return_value = mock_service
+        mock_calendar_service.events.return_value = mock_events
         
         # Create test events with different properties
         events_data = [
@@ -99,14 +93,11 @@ class TestCalendarIntegration:
         assert call_args["q"] == "team"
         assert call_args["maxResults"] == 50
     
-    @patch('src.google_api_client.clients.calendar.client.calendar_service')
-    def test_attendee_management_integration(self, mock_context, sample_google_event):
+    def test_attendee_management_integration(self, mock_get_calendar_service, mock_calendar_service, sample_google_event):
         """Test attendee addition and removal."""
-        # Setup mock
-        mock_service = Mock()
+        # Setup mock using fixture
         mock_events = Mock()
-        mock_service.events.return_value = mock_events
-        mock_context.return_value.__enter__.return_value = mock_service
+        mock_calendar_service.events.return_value = mock_events
         
         # Mock event with initial attendees
         event_data = sample_google_event.copy()
@@ -135,13 +126,11 @@ class TestCalendarIntegration:
 class TestAsyncCalendarIntegration:
     """Integration tests for async calendar functionality."""
     
-    @patch('src.google_api_client.clients.calendar.async_client.async_calendar_service')
-    async def test_async_end_to_end_lifecycle(self, mock_context, sample_google_event):
+    async def test_async_end_to_end_lifecycle(self, mock_get_async_calendar_service, mock_async_calendar_context, sample_google_event):
         """Test complete async event lifecycle."""
-        # Setup mock
-        mock_aiogoogle = AsyncMock()
-        mock_calendar_service = Mock()
-        mock_context.return_value.__aenter__.return_value = (mock_aiogoogle, mock_calendar_service)
+        # Setup mock using fixture
+        mock_aiogoogle, mock_calendar_service = mock_async_calendar_context
+        mock_get_async_calendar_service.return_value.__aenter__.return_value = mock_async_calendar_context
         
         # Mock responses
         created_event = sample_google_event.copy()
@@ -172,13 +161,11 @@ class TestAsyncCalendarIntegration:
         # Should have made 3 API calls (create, update, delete)
         assert mock_aiogoogle.as_user.call_count == 3
     
-    @patch('src.google_api_client.clients.calendar.async_client.async_calendar_service')
-    async def test_async_batch_operations(self, mock_context, sample_google_event):
+    async def test_async_batch_operations(self, mock_get_async_calendar_service, mock_async_calendar_context, sample_google_event):
         """Test async batch operations."""
-        # Setup mock
-        mock_aiogoogle = AsyncMock()
-        mock_calendar_service = Mock()
-        mock_context.return_value.__aenter__.return_value = (mock_aiogoogle, mock_calendar_service)
+        # Setup mock using fixture
+        mock_aiogoogle, mock_calendar_service = mock_async_calendar_context
+        mock_get_async_calendar_service.return_value.__aenter__.return_value = mock_async_calendar_context
         
         # Mock batch creation
         created_events = [
@@ -205,13 +192,11 @@ class TestAsyncCalendarIntegration:
         assert all(event.id.startswith("batch_") for event in results)
         assert mock_aiogoogle.as_user.call_count == 3
     
-    @patch('src.google_api_client.clients.calendar.async_client.async_calendar_service')
-    async def test_async_query_builder_integration(self, mock_context, sample_google_event):
+    async def test_async_query_builder_integration(self, mock_get_async_calendar_service, mock_async_calendar_context, sample_google_event):
         """Test async query builder integration."""
-        # Setup mock
-        mock_aiogoogle = AsyncMock()
-        mock_calendar_service = Mock()
-        mock_context.return_value.__aenter__.return_value = (mock_aiogoogle, mock_calendar_service)
+        # Setup mock using fixture
+        mock_aiogoogle, mock_calendar_service = mock_async_calendar_context
+        mock_get_async_calendar_service.return_value.__aenter__.return_value = mock_async_calendar_context
         
         # Mock list response
         events_data = [
@@ -230,13 +215,11 @@ class TestAsyncCalendarIntegration:
         assert len(results) == 2
         mock_aiogoogle.as_user.assert_called_once()
     
-    @patch('src.google_api_client.clients.calendar.async_client.async_calendar_service')
-    async def test_async_multi_calendar_integration(self, mock_context, sample_google_event):
+    async def test_async_multi_calendar_integration(self, mock_get_async_calendar_service, mock_async_calendar_context, sample_google_event):
         """Test async multi-calendar operations."""
-        # Setup mock
-        mock_aiogoogle = AsyncMock()
-        mock_calendar_service = Mock()
-        mock_context.return_value.__aenter__.return_value = (mock_aiogoogle, mock_calendar_service)
+        # Setup mock using fixture
+        mock_aiogoogle, mock_calendar_service = mock_async_calendar_context
+        mock_get_async_calendar_service.return_value.__aenter__.return_value = mock_async_calendar_context
         
         # Mock different responses for different calendars
         def mock_response(*args, **kwargs):
@@ -264,8 +247,7 @@ class TestAsyncCalendarIntegration:
 class TestExceptionHandling:
     """Integration tests for exception handling."""
     
-    @patch('src.google_api_client.auth.manager.auth_manager.get_calendar_service')
-    def test_calendar_permission_error_handling(self, mock_get_service):
+    def test_calendar_permission_error_handling(self, mock_auth_manager_get_calendar_service):
         """Test handling of permission errors."""
         from googleapiclient.errors import HttpError
         from src.google_api_client.clients.calendar.client import CalendarPermissionError
@@ -275,14 +257,13 @@ class TestExceptionHandling:
         mock_error_response.status = 403
         http_error = HttpError(resp=mock_error_response, content=b'Permission denied')
         
-        mock_get_service.side_effect = http_error
+        mock_auth_manager_get_calendar_service.side_effect = http_error
         
         # Test: Should raise CalendarPermissionError
         with pytest.raises(CalendarPermissionError):
             CalendarEvent.list_events()
     
-    @patch('src.google_api_client.auth.manager.auth_manager.get_calendar_service')
-    def test_calendar_not_found_error_handling(self, mock_get_service):
+    def test_calendar_not_found_error_handling(self, mock_auth_manager_get_calendar_service):
         """Test handling of not found errors."""
         from googleapiclient.errors import HttpError
         from src.google_api_client.clients.calendar.client import CalendarNotFoundError
@@ -292,15 +273,14 @@ class TestExceptionHandling:
         mock_error_response.status = 404
         http_error = HttpError(resp=mock_error_response, content=b'Not found')
         
-        mock_get_service.side_effect = http_error
+        mock_auth_manager_get_calendar_service.side_effect = http_error
         
         # Test: Should raise CalendarNotFoundError
         with pytest.raises(CalendarNotFoundError):
             CalendarEvent.get_event("nonexistent_id")
     
     @pytest.mark.asyncio
-    @patch('src.google_api_client.auth.manager.auth_manager.get_async_calendar_service')
-    async def test_async_error_handling(self, mock_get_service):
+    async def test_async_error_handling(self, mock_auth_manager_get_async_calendar_service):
         """Test async error handling."""
         from aiogoogle.excs import HTTPError
         from src.google_api_client.clients.calendar.async_client import AsyncCalendarPermissionError
@@ -310,7 +290,7 @@ class TestExceptionHandling:
         mock_error_response.status_code = 403
         http_error = HTTPError("Permission denied", res=mock_error_response)
         
-        mock_get_service.side_effect = http_error
+        mock_auth_manager_get_async_calendar_service.side_effect = http_error
         
         # Test: Should raise AsyncCalendarPermissionError
         with pytest.raises(AsyncCalendarPermissionError):
@@ -348,14 +328,11 @@ class TestTimezoneIntegration:
         assert start < tomorrow
         assert end < tomorrow
     
-    @patch('src.google_api_client.clients.calendar.client.calendar_service')
-    def test_builder_timezone_integration(self, mock_context, sample_google_event):
+    def test_builder_timezone_integration(self, mock_get_calendar_service, mock_calendar_service, sample_google_event):
         """Test that query builder timezone methods work correctly."""
-        # Setup mock
-        mock_service = Mock()
+        # Setup mock using fixture
         mock_events = Mock()
-        mock_service.events.return_value = mock_events
-        mock_context.return_value.__enter__.return_value = mock_service
+        mock_calendar_service.events.return_value = mock_events
         mock_events.list.return_value.execute.return_value = {"items": [sample_google_event]}
         
         # Test various time-based queries

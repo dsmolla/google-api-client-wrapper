@@ -147,13 +147,11 @@ class TestAsyncCalendarEvent:
         assert event.has_attendee("missing@example.com") is False
     
     @pytest.mark.asyncio
-    @patch('src.google_api_client.clients.calendar.async_client.async_calendar_service')
-    async def test_list_events(self, mock_context, sample_google_event):
+    async def test_list_events(self, sample_google_event, mock_get_async_calendar_service, mock_async_calendar_context):
         """Test list_events async class method."""
         # Setup mock
-        mock_aiogoogle = AsyncMock()
-        mock_calendar_service = Mock()
-        mock_context.return_value.__aenter__.return_value = (mock_aiogoogle, mock_calendar_service)
+        mock_aiogoogle, mock_calendar_service = mock_async_calendar_context
+        mock_get_async_calendar_service.return_value.__aenter__.return_value = (mock_aiogoogle, mock_calendar_service)
         mock_aiogoogle.as_user.return_value = {"items": [sample_google_event]}
         
         # Test
@@ -175,13 +173,11 @@ class TestAsyncCalendarEvent:
             await AsyncCalendarEvent.list_events(query="x" * 501)
     
     @pytest.mark.asyncio
-    @patch('src.google_api_client.clients.calendar.async_client.async_calendar_service')
-    async def test_get_event(self, mock_context, sample_google_event):
+    async def test_get_event(self, sample_google_event, mock_get_async_calendar_service, mock_async_calendar_context):
         """Test get_event async class method."""
         # Setup mock
-        mock_aiogoogle = AsyncMock()
-        mock_calendar_service = Mock()
-        mock_context.return_value.__aenter__.return_value = (mock_aiogoogle, mock_calendar_service)
+        mock_aiogoogle, mock_calendar_service = mock_async_calendar_context
+        mock_get_async_calendar_service.return_value.__aenter__.return_value = (mock_aiogoogle, mock_calendar_service)
         mock_aiogoogle.as_user.return_value = sample_google_event
         
         # Test
@@ -193,13 +189,11 @@ class TestAsyncCalendarEvent:
         mock_aiogoogle.as_user.assert_called_once()
     
     @pytest.mark.asyncio
-    @patch('src.google_api_client.clients.calendar.async_client.async_calendar_service')
-    async def test_create_event(self, mock_context, sample_datetime, sample_datetime_end, sample_google_event):
+    async def test_create_event(self, sample_datetime, sample_datetime_end, sample_google_event, mock_get_async_calendar_service, mock_async_calendar_context):
         """Test create_event async class method."""
         # Setup mock
-        mock_aiogoogle = AsyncMock()
-        mock_calendar_service = Mock()
-        mock_context.return_value.__aenter__.return_value = (mock_aiogoogle, mock_calendar_service)
+        mock_aiogoogle, mock_calendar_service = mock_async_calendar_context
+        mock_get_async_calendar_service.return_value.__aenter__.return_value = (mock_aiogoogle, mock_calendar_service)
         mock_aiogoogle.as_user.return_value = sample_google_event
         
         # Test
@@ -222,13 +216,11 @@ class TestAsyncCalendarEvent:
             await AsyncCalendarEvent.create_event(start=sample_datetime, end=sample_datetime)
     
     @pytest.mark.asyncio
-    @patch('src.google_api_client.clients.calendar.async_client.async_calendar_service')
-    async def test_sync_changes(self, mock_context, sample_datetime, sample_datetime_end):
+    async def test_sync_changes(self, sample_datetime, sample_datetime_end, mock_get_async_calendar_service, mock_async_calendar_context):
         """Test sync_changes async instance method."""
         # Setup mock
-        mock_aiogoogle = AsyncMock()
-        mock_calendar_service = Mock()
-        mock_context.return_value.__aenter__.return_value = (mock_aiogoogle, mock_calendar_service)
+        mock_aiogoogle, mock_calendar_service = mock_async_calendar_context
+        mock_get_async_calendar_service.return_value.__aenter__.return_value = (mock_aiogoogle, mock_calendar_service)
         
         # Test
         event = AsyncCalendarEvent(
@@ -246,13 +238,11 @@ class TestAsyncCalendarEvent:
         assert hasattr(call_args, '__call__')  # It's a callable (method)
     
     @pytest.mark.asyncio
-    @patch('src.google_api_client.clients.calendar.async_client.async_calendar_service')
-    async def test_delete_event(self, mock_context):
+    async def test_delete_event(self, mock_get_async_calendar_service, mock_async_calendar_context):
         """Test delete_event async instance method."""
         # Setup mock
-        mock_aiogoogle = AsyncMock()
-        mock_calendar_service = Mock()
-        mock_context.return_value.__aenter__.return_value = (mock_aiogoogle, mock_calendar_service)
+        mock_aiogoogle, mock_calendar_service = mock_async_calendar_context
+        mock_get_async_calendar_service.return_value.__aenter__.return_value = (mock_aiogoogle, mock_calendar_service)
         
         # Test
         event = AsyncCalendarEvent(id="test_123")
@@ -262,13 +252,11 @@ class TestAsyncCalendarEvent:
         mock_aiogoogle.as_user.assert_called_once()
     
     @pytest.mark.asyncio
-    @patch('src.google_api_client.clients.calendar.async_client.async_calendar_service')
-    async def test_update_methods(self, mock_context, sample_datetime, sample_datetime_end):
+    async def test_update_methods(self, sample_datetime, sample_datetime_end, mock_get_async_calendar_service, mock_async_calendar_context):
         """Test various async update methods."""
         # Setup mock
-        mock_aiogoogle = AsyncMock()
-        mock_calendar_service = Mock()
-        mock_context.return_value.__aenter__.return_value = (mock_aiogoogle, mock_calendar_service)
+        mock_aiogoogle, mock_calendar_service = mock_async_calendar_context
+        mock_get_async_calendar_service.return_value.__aenter__.return_value = (mock_aiogoogle, mock_calendar_service)
         
         # Test event
         event = AsyncCalendarEvent(
@@ -294,13 +282,11 @@ class TestAsyncCalendarEvent:
         assert mock_aiogoogle.as_user.call_count == 3
     
     @pytest.mark.asyncio
-    @patch('src.google_api_client.clients.calendar.async_client.async_calendar_service')
-    async def test_add_remove_attendee(self, mock_context, sample_datetime, sample_datetime_end):
+    async def test_add_remove_attendee(self, sample_datetime, sample_datetime_end, mock_get_async_calendar_service, mock_async_calendar_context):
         """Test add_attendee and remove_attendee async methods."""
         # Setup mock
-        mock_aiogoogle = AsyncMock()
-        mock_calendar_service = Mock()
-        mock_context.return_value.__aenter__.return_value = (mock_aiogoogle, mock_calendar_service)
+        mock_aiogoogle, mock_calendar_service = mock_async_calendar_context
+        mock_get_async_calendar_service.return_value.__aenter__.return_value = (mock_aiogoogle, mock_calendar_service)
         
         # Test event
         event = AsyncCalendarEvent(
@@ -368,13 +354,11 @@ class TestAsyncCalendarEvent:
         assert mock_get.call_count == 2
     
     @pytest.mark.asyncio
-    @patch('src.google_api_client.clients.calendar.async_client.async_calendar_service')
-    async def test_batch_update_events(self, mock_context, sample_datetime, sample_datetime_end):
+    async def test_batch_update_events(self, sample_datetime, sample_datetime_end, mock_get_async_calendar_service, mock_async_calendar_context):
         """Test batch_update_events method."""
         # Setup mock
-        mock_aiogoogle = AsyncMock()
-        mock_calendar_service = Mock()
-        mock_context.return_value.__aenter__.return_value = (mock_aiogoogle, mock_calendar_service)
+        mock_aiogoogle, mock_calendar_service = mock_async_calendar_context
+        mock_get_async_calendar_service.return_value.__aenter__.return_value = (mock_aiogoogle, mock_calendar_service)
         
         # Test events
         events = [
@@ -389,13 +373,11 @@ class TestAsyncCalendarEvent:
         assert mock_aiogoogle.as_user.call_count == 2
     
     @pytest.mark.asyncio
-    @patch('src.google_api_client.clients.calendar.async_client.async_calendar_service')
-    async def test_batch_delete_events(self, mock_context):
+    async def test_batch_delete_events(self, mock_get_async_calendar_service, mock_async_calendar_context):
         """Test batch_delete_events method."""
         # Setup mock
-        mock_aiogoogle = AsyncMock()
-        mock_calendar_service = Mock()
-        mock_context.return_value.__aenter__.return_value = (mock_aiogoogle, mock_calendar_service)
+        mock_aiogoogle, mock_calendar_service = mock_async_calendar_context
+        mock_get_async_calendar_service.return_value.__aenter__.return_value = (mock_aiogoogle, mock_calendar_service)
         
         # Test
         await AsyncCalendarEvent.batch_delete_events(["1", "2"])

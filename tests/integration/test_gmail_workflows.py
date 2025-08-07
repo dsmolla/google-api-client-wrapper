@@ -14,12 +14,9 @@ from src.google_api_client.clients.gmail.async_client import AsyncEmailMessage, 
 class TestGmailIntegration:
     """Integration tests for Gmail functionality with mocked API calls."""
     
-    @patch('src.google_api_client.clients.gmail.client.gmail_service')
-    def test_end_to_end_email_lifecycle(self, mock_context, sample_gmail_message):
+    def test_end_to_end_email_lifecycle(self, mock_get_gmail_service, mock_gmail_service, sample_gmail_message):
         """Test complete email lifecycle: send, read, label, delete."""
-        # Setup mock service
-        mock_service = Mock()
-        mock_context.return_value.__enter__.return_value = mock_service
+        # Setup mock service using fixture
         
         # Mock responses for different operations
         sent_email_response = {
@@ -27,8 +24,8 @@ class TestGmailIntegration:
             "threadId": "thread_456"
         }
         
-        mock_service.users.return_value.messages.return_value.send.return_value.execute.return_value = sent_email_response
-        mock_service.users.return_value.messages.return_value.get.return_value.execute.return_value = sample_gmail_message
+        mock_gmail_service.users.return_value.messages.return_value.send.return_value.execute.return_value = sent_email_response
+        mock_gmail_service.users.return_value.messages.return_value.get.return_value.execute.return_value = sample_gmail_message
         
         # Test: Send email
         sent_email = EmailMessage.send_email(
@@ -41,19 +38,19 @@ class TestGmailIntegration:
         
         assert sent_email.message_id == "msg_123"  # From sample_gmail_message
         assert sent_email.subject == "Test Email Subject"
-        mock_service.users.return_value.messages.return_value.send.assert_called_once()
+        mock_gmail_service.users.return_value.messages.return_value.send.assert_called_once()
         
         # Test: Get email
         retrieved_email = EmailMessage.get_email("msg_123")
         assert retrieved_email.message_id == "msg_123"
         assert retrieved_email.subject == "Test Email Subject"
-        mock_service.users.return_value.messages.return_value.get.assert_called()
+        mock_gmail_service.users.return_value.messages.return_value.get.assert_called()
         
         # Test: Mark as read
         result = retrieved_email.mark_as_read()
         assert result is True
         assert retrieved_email.is_read is True
-        mock_service.users.return_value.messages.return_value.modify.assert_called()
+        mock_gmail_service.users.return_value.messages.return_value.modify.assert_called()
         
         # Test: Add label
         result = retrieved_email.add_label(["IMPORTANT"])
@@ -63,14 +60,11 @@ class TestGmailIntegration:
         # Test: Delete email
         result = retrieved_email.delete_email()
         assert result is True
-        mock_service.users.return_value.messages.return_value.trash.assert_called_once()
+        mock_gmail_service.users.return_value.messages.return_value.trash.assert_called_once()
     
-    @patch('src.google_api_client.clients.gmail.client.gmail_service')
-    def test_label_management_workflow(self, mock_context):
+    def test_label_management_workflow(self, mock_get_gmail_service, mock_gmail_service):
         """Test complete label management workflow."""
-        # Setup mock service
-        mock_service = Mock()
-        mock_context.return_value.__enter__.return_value = mock_service
+        # Setup mock service using fixture
         
         # Mock responses
         created_label_response = {
@@ -92,39 +86,36 @@ class TestGmailIntegration:
             ]
         }
         
-        mock_service.users.return_value.labels.return_value.create.return_value.execute.return_value = created_label_response
-        mock_service.users.return_value.labels.return_value.patch.return_value.execute.return_value = updated_label_response
-        mock_service.users.return_value.labels.return_value.list.return_value.execute.return_value = labels_list_response
+        mock_gmail_service.users.return_value.labels.return_value.create.return_value.execute.return_value = created_label_response
+        mock_gmail_service.users.return_value.labels.return_value.patch.return_value.execute.return_value = updated_label_response
+        mock_gmail_service.users.return_value.labels.return_value.list.return_value.execute.return_value = labels_list_response
         
         # Test: Create label
         new_label = Label.create_label("Integration Test Label")
         assert new_label.id == "label_new_123"
         assert new_label.name == "Integration Test Label"
         assert new_label.type == "user"
-        mock_service.users.return_value.labels.return_value.create.assert_called_once()
+        mock_gmail_service.users.return_value.labels.return_value.create.assert_called_once()
         
         # Test: Update label
         updated_label = new_label.update_label("Updated Integration Test Label")
         assert updated_label.name == "Updated Integration Test Label"
-        mock_service.users.return_value.labels.return_value.patch.assert_called_once()
+        mock_gmail_service.users.return_value.labels.return_value.patch.assert_called_once()
         
         # Test: List labels
         labels = Label.list_labels()
         assert len(labels) == 2
         assert any(label.id == "label_new_123" for label in labels)
-        mock_service.users.return_value.labels.return_value.list.assert_called_once()
+        mock_gmail_service.users.return_value.labels.return_value.list.assert_called_once()
         
         # Test: Delete label
         result = updated_label.delete_label()
         assert result is True
-        mock_service.users.return_value.labels.return_value.delete.assert_called_once()
+        mock_gmail_service.users.return_value.labels.return_value.delete.assert_called_once()
     
-    @patch('src.google_api_client.clients.gmail.client.gmail_service')
-    def test_email_search_and_filtering_workflow(self, mock_context, sample_gmail_message):
+    def test_email_search_and_filtering_workflow(self, mock_get_gmail_service, mock_gmail_service, sample_gmail_message):
         """Test complex email search and filtering workflow."""
-        # Setup mock service
-        mock_service = Mock()
-        mock_context.return_value.__enter__.return_value = mock_service
+        # Setup mock service using fixture
         
         # Mock search responses
         search_response = {
@@ -135,8 +126,8 @@ class TestGmailIntegration:
             ]
         }
         
-        mock_service.users.return_value.messages.return_value.list.return_value.execute.return_value = search_response
-        mock_service.users.return_value.messages.return_value.get.return_value.execute.return_value = sample_gmail_message
+        mock_gmail_service.users.return_value.messages.return_value.list.return_value.execute.return_value = search_response
+        mock_gmail_service.users.return_value.messages.return_value.get.return_value.execute.return_value = sample_gmail_message
         
         # Test: Basic search using query builder
         emails = (EmailMessage.query()
@@ -148,8 +139,8 @@ class TestGmailIntegration:
                  .execute())
         
         assert len(emails) == 3
-        mock_service.users.return_value.messages.return_value.list.assert_called_once()
-        list_call_args = mock_service.users.return_value.messages.return_value.list.call_args
+        mock_gmail_service.users.return_value.messages.return_value.list.assert_called_once()
+        list_call_args = mock_gmail_service.users.return_value.messages.return_value.list.call_args
         assert list_call_args[1]['maxResults'] == 50
         assert 'q' in list_call_args[1]
         query_string = list_call_args[1]['q']
@@ -163,9 +154,9 @@ class TestGmailIntegration:
         today = datetime.now()
         
         # Reset mock for new call
-        mock_service.reset_mock()
-        mock_service.users.return_value.messages.return_value.list.return_value.execute.return_value = search_response
-        mock_service.users.return_value.messages.return_value.get.return_value.execute.return_value = sample_gmail_message
+        mock_gmail_service.reset_mock()
+        mock_gmail_service.users.return_value.messages.return_value.list.return_value.execute.return_value = search_response
+        mock_gmail_service.users.return_value.messages.return_value.get.return_value.execute.return_value = sample_gmail_message
         
         recent_emails = (EmailMessage.query()
                         .in_date_range(yesterday, today)
@@ -173,23 +164,20 @@ class TestGmailIntegration:
                         .execute())
         
         assert len(recent_emails) == 3
-        mock_service.users.return_value.messages.return_value.list.assert_called_once()
+        mock_gmail_service.users.return_value.messages.return_value.list.assert_called_once()
     
-    @patch('src.google_api_client.clients.gmail.client.gmail_service')
-    def test_batch_operations_workflow(self, mock_context, sample_gmail_message):
+    def test_batch_operations_workflow(self, mock_get_gmail_service, mock_gmail_service, sample_gmail_message):
         """Test batch operations workflow."""
-        # Setup mock service
-        mock_service = Mock()
-        mock_context.return_value.__enter__.return_value = mock_service
+        # Setup mock service using fixture
         
         # Mock responses
         send_response_1 = {"id": "msg_sent_123"}
         send_response_2 = {"id": "msg_sent_456"}
         
-        mock_service.users.return_value.messages.return_value.send.return_value.execute.side_effect = [
+        mock_gmail_service.users.return_value.messages.return_value.send.return_value.execute.side_effect = [
             send_response_1, send_response_2
         ]
-        mock_service.users.return_value.messages.return_value.get.return_value.execute.return_value = sample_gmail_message
+        mock_gmail_service.users.return_value.messages.return_value.get.return_value.execute.return_value = sample_gmail_message
         
         # Test: Batch send emails
         email_data_list = [
@@ -208,32 +196,29 @@ class TestGmailIntegration:
         sent_emails = EmailMessage.batch_send_emails(email_data_list)
         
         assert len(sent_emails) == 2
-        assert mock_service.users.return_value.messages.return_value.send.call_count == 2
+        assert mock_gmail_service.users.return_value.messages.return_value.send.call_count == 2
         
         # Test: Batch get emails
         message_ids = ["msg_123", "msg_456", "msg_789"]
         
         # Reset mock for batch get
-        mock_service.reset_mock()
-        mock_service.users.return_value.messages.return_value.get.return_value.execute.return_value = sample_gmail_message
+        mock_gmail_service.reset_mock()
+        mock_gmail_service.users.return_value.messages.return_value.get.return_value.execute.return_value = sample_gmail_message
         
         retrieved_emails = EmailMessage.batch_get_emails(message_ids)
         
         assert len(retrieved_emails) == 3
-        assert mock_service.users.return_value.messages.return_value.get.call_count == 3
+        assert mock_gmail_service.users.return_value.messages.return_value.get.call_count == 3
     
-    @patch('src.google_api_client.clients.gmail.client.gmail_service')
-    def test_reply_workflow(self, mock_context, sample_gmail_message):
+    def test_reply_workflow(self, mock_get_gmail_service, mock_gmail_service, sample_gmail_message):
         """Test email reply workflow."""
-        # Setup mock service
-        mock_service = Mock()
-        mock_context.return_value.__enter__.return_value = mock_service
+        # Setup mock service using fixture
         
         # Mock responses
         reply_response = {"id": "msg_reply_123"}
         
-        mock_service.users.return_value.messages.return_value.get.return_value.execute.return_value = sample_gmail_message
-        mock_service.users.return_value.messages.return_value.send.return_value.execute.return_value = reply_response
+        mock_gmail_service.users.return_value.messages.return_value.get.return_value.execute.return_value = sample_gmail_message
+        mock_gmail_service.users.return_value.messages.return_value.send.return_value.execute.return_value = reply_response
         
         # Test: Get original email and reply
         original_email = EmailMessage.get_email("msg_123")
@@ -246,10 +231,10 @@ class TestGmailIntegration:
         )
         
         assert reply_email.message_id == "msg_123"  # From sample response
-        mock_service.users.return_value.messages.return_value.send.assert_called_once()
+        mock_gmail_service.users.return_value.messages.return_value.send.assert_called_once()
         
         # Verify reply was sent to original sender
-        send_call = mock_service.users.return_value.messages.return_value.send.call_args
+        send_call = mock_gmail_service.users.return_value.messages.return_value.send.call_args
         assert send_call[1]['userId'] == 'me'
         assert 'raw' in send_call[1]['body']
 
@@ -260,13 +245,11 @@ class TestGmailIntegration:
 class TestAsyncGmailIntegration:
     """Async integration tests for Gmail functionality with mocked API calls."""
     
-    @patch('src.google_api_client.clients.gmail.async_client.async_gmail_service')
-    async def test_async_end_to_end_email_lifecycle(self, mock_context, sample_gmail_message):
+    async def test_async_end_to_end_email_lifecycle(self, mock_get_async_gmail_service, mock_async_gmail_context, sample_gmail_message):
         """Test complete async email lifecycle: send, read, label, delete."""
-        # Setup mock async context manager
-        mock_aiogoogle = AsyncMock()
-        mock_service = Mock()
-        mock_context.return_value.__aenter__.return_value = (mock_aiogoogle, mock_service)
+        # Setup mock async context manager using fixture
+        mock_aiogoogle, mock_service = mock_async_gmail_context
+        mock_get_async_gmail_service.return_value.__aenter__.return_value = mock_async_gmail_context
         
         # Mock responses
         sent_email_response = {
@@ -317,13 +300,11 @@ class TestAsyncGmailIntegration:
         # Verify all API calls were made
         assert mock_aiogoogle.as_user.call_count == 6
     
-    @patch('src.google_api_client.clients.gmail.async_client.async_gmail_service')
-    async def test_async_label_management_workflow(self, mock_context):
+    async def test_async_label_management_workflow(self, mock_get_async_gmail_service, mock_async_gmail_context):
         """Test complete async label management workflow."""
-        # Setup mock async context manager
-        mock_aiogoogle = AsyncMock()
-        mock_service = Mock()
-        mock_context.return_value.__aenter__.return_value = (mock_aiogoogle, mock_service)
+        # Setup mock async context manager using fixture
+        mock_aiogoogle, mock_service = mock_async_gmail_context
+        mock_get_async_gmail_service.return_value.__aenter__.return_value = mock_async_gmail_context
         
         # Mock responses
         created_label_response = {
@@ -374,13 +355,11 @@ class TestAsyncGmailIntegration:
         # Verify all API calls were made
         assert mock_aiogoogle.as_user.call_count == 4
     
-    @patch('src.google_api_client.clients.gmail.async_client.async_gmail_service')
-    async def test_async_batch_operations_workflow(self, mock_context, sample_gmail_message):
+    async def test_async_batch_operations_workflow(self, mock_get_async_gmail_service, mock_async_gmail_context, sample_gmail_message):
         """Test async batch operations workflow."""
-        # Setup mock async context manager
-        mock_aiogoogle = AsyncMock()
-        mock_service = Mock()
-        mock_context.return_value.__aenter__.return_value = (mock_aiogoogle, mock_service)
+        # Setup mock async context manager using fixture
+        mock_aiogoogle, mock_service = mock_async_gmail_context
+        mock_get_async_gmail_service.return_value.__aenter__.return_value = mock_async_gmail_context
         
         # Test batch get emails using the class method directly
         message_ids = ["msg_123", "msg_456", "msg_789"]
@@ -433,13 +412,11 @@ class TestAsyncGmailIntegration:
             assert sent_emails[1].message_id == "msg_sent_456"
             assert mock_send_email.call_count == 2
     
-    @patch('src.google_api_client.clients.gmail.async_client.async_gmail_service')
-    async def test_async_query_builder_workflow(self, mock_context, sample_gmail_message):
+    async def test_async_query_builder_workflow(self, mock_get_async_gmail_service, mock_async_gmail_context, sample_gmail_message):
         """Test async query builder workflow."""
-        # Setup mock async context manager
-        mock_aiogoogle = AsyncMock()
-        mock_service = Mock()
-        mock_context.return_value.__aenter__.return_value = (mock_aiogoogle, mock_service)
+        # Setup mock async context manager using fixture
+        mock_aiogoogle, mock_service = mock_async_gmail_context
+        mock_get_async_gmail_service.return_value.__aenter__.return_value = mock_async_gmail_context
         
         # Mock search response
         search_response = {

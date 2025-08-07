@@ -101,13 +101,11 @@ class TestAsyncEmailAttachment:
             )
     
     @pytest.mark.asyncio
-    @patch('src.google_api_client.clients.gmail.async_client.async_gmail_service')
-    async def test_get_attachment_data(self, mock_context):
+    async def test_get_attachment_data(self, mock_get_async_gmail_service, mock_async_gmail_context):
         """Test getting attachment data asynchronously."""
-        # Setup mock async context manager
-        mock_aiogoogle = AsyncMock()
-        mock_service = Mock()
-        mock_context.return_value.__aenter__.return_value = (mock_aiogoogle, mock_service)
+        # Setup mock
+        mock_aiogoogle, mock_service = mock_async_gmail_context
+        mock_get_async_gmail_service.return_value.__aenter__.return_value = (mock_aiogoogle, mock_service)
         
         # Mock API response
         mock_attachment_response = {
@@ -132,13 +130,11 @@ class TestAsyncEmailAttachment:
         assert hasattr(call_args, 'users')
     
     @pytest.mark.asyncio
-    @patch('src.google_api_client.clients.gmail.async_client.async_gmail_service')
-    async def test_load_data(self, mock_context):
+    async def test_load_data(self, mock_get_async_gmail_service, mock_async_gmail_context):
         """Test loading attachment data."""
-        # Setup mock async context manager
-        mock_aiogoogle = AsyncMock()
-        mock_service = Mock()
-        mock_context.return_value.__aenter__.return_value = (mock_aiogoogle, mock_service)
+        # Setup mock
+        mock_aiogoogle, mock_service = mock_async_gmail_context
+        mock_get_async_gmail_service.return_value.__aenter__.return_value = (mock_aiogoogle, mock_service)
         
         mock_attachment_response = {
             'data': 'VGVzdCBkYXRh'  # Base64 encoded "Test data"
@@ -179,13 +175,11 @@ class TestAsyncLabel:
             AsyncLabel(id="", name="Important", type="user")
     
     @pytest.mark.asyncio
-    @patch('src.google_api_client.clients.gmail.async_client.async_gmail_service')
-    async def test_list_labels(self, mock_context):
+    async def test_list_labels(self, mock_get_async_gmail_service, mock_async_gmail_context):
         """Test listing labels asynchronously."""
-        # Setup mock async context manager
-        mock_aiogoogle = AsyncMock()
-        mock_service = Mock()
-        mock_context.return_value.__aenter__.return_value = (mock_aiogoogle, mock_service)
+        # Setup mock
+        mock_aiogoogle, mock_service = mock_async_gmail_context
+        mock_get_async_gmail_service.return_value.__aenter__.return_value = (mock_aiogoogle, mock_service)
         
         # Mock API response
         mock_labels_response = {
@@ -211,13 +205,11 @@ class TestAsyncLabel:
         mock_aiogoogle.as_user.assert_called_once()
     
     @pytest.mark.asyncio
-    @patch('src.google_api_client.clients.gmail.async_client.async_gmail_service')
-    async def test_create_label(self, mock_context):
+    async def test_create_label(self, mock_get_async_gmail_service, mock_async_gmail_context):
         """Test creating a label asynchronously."""
-        # Setup mock async context manager
-        mock_aiogoogle = AsyncMock()
-        mock_service = Mock()
-        mock_context.return_value.__aenter__.return_value = (mock_aiogoogle, mock_service)
+        # Setup mock
+        mock_aiogoogle, mock_service = mock_async_gmail_context
+        mock_get_async_gmail_service.return_value.__aenter__.return_value = (mock_aiogoogle, mock_service)
         
         # Mock API response
         mock_create_response = {
@@ -239,13 +231,11 @@ class TestAsyncLabel:
         assert hasattr(call_args, 'users')
     
     @pytest.mark.asyncio
-    @patch('src.google_api_client.clients.gmail.async_client.async_gmail_service')
-    async def test_delete_label(self, mock_context):
+    async def test_delete_label(self, mock_get_async_gmail_service, mock_async_gmail_context):
         """Test deleting a label asynchronously."""
-        # Setup mock async context manager
-        mock_aiogoogle = AsyncMock()
-        mock_service = Mock()
-        mock_context.return_value.__aenter__.return_value = (mock_aiogoogle, mock_service)
+        # Setup mock
+        mock_aiogoogle, mock_service = mock_async_gmail_context
+        mock_get_async_gmail_service.return_value.__aenter__.return_value = (mock_aiogoogle, mock_service)
         
         label = AsyncLabel(id="label_123", name="To Delete", type="user")
         result = await label.delete_label()
@@ -383,13 +373,11 @@ class TestAsyncEmailMessage:
         assert email.has_label("DRAFT") is False
     
     @pytest.mark.asyncio
-    @patch('src.google_api_client.clients.gmail.async_client.async_gmail_service')
-    async def test_list_emails(self, mock_context, sample_gmail_message):
+    async def test_list_emails(self, sample_gmail_message, mock_get_async_gmail_service, mock_async_gmail_context):
         """Test listing emails asynchronously."""
-        # Setup mock async context manager
-        mock_aiogoogle = AsyncMock()
-        mock_service = Mock()
-        mock_context.return_value.__aenter__.return_value = (mock_aiogoogle, mock_service)
+        # Setup mock
+        mock_aiogoogle, mock_service = mock_async_gmail_context
+        mock_get_async_gmail_service.return_value.__aenter__.return_value = (mock_aiogoogle, mock_service)
         
         # Mock API responses
         mock_list_response = {
@@ -416,13 +404,11 @@ class TestAsyncEmailMessage:
         mock_aiogoogle.as_user.assert_called_once()
     
     @pytest.mark.asyncio
-    @patch('src.google_api_client.clients.gmail.async_client.async_gmail_service')
-    async def test_get_email(self, mock_context, sample_gmail_message):
+    async def test_get_email(self, sample_gmail_message, mock_get_async_gmail_service, mock_async_gmail_context):
         """Test getting a specific email asynchronously."""
-        # Setup mock async context manager
-        mock_aiogoogle = AsyncMock()
-        mock_service = Mock()
-        mock_context.return_value.__aenter__.return_value = (mock_aiogoogle, mock_service)
+        # Setup mock
+        mock_aiogoogle, mock_service = mock_async_gmail_context
+        mock_get_async_gmail_service.return_value.__aenter__.return_value = (mock_aiogoogle, mock_service)
         mock_aiogoogle.as_user.return_value = sample_gmail_message
         
         email = await AsyncEmailMessage.get_email("msg_123")
@@ -435,13 +421,11 @@ class TestAsyncEmailMessage:
         mock_aiogoogle.as_user.assert_called_once()
     
     @pytest.mark.asyncio
-    @patch('src.google_api_client.clients.gmail.async_client.async_gmail_service')
-    async def test_send_email(self, mock_context):
+    async def test_send_email(self, mock_get_async_gmail_service, mock_async_gmail_context):
         """Test sending an email asynchronously."""
-        # Setup mock async context manager
-        mock_aiogoogle = AsyncMock()
-        mock_service = Mock()
-        mock_context.return_value.__aenter__.return_value = (mock_aiogoogle, mock_service)
+        # Setup mock
+        mock_aiogoogle, mock_service = mock_async_gmail_context
+        mock_get_async_gmail_service.return_value.__aenter__.return_value = (mock_aiogoogle, mock_service)
         
         # Mock send response
         mock_send_response = {'id': 'msg_sent_123'}
@@ -465,13 +449,11 @@ class TestAsyncEmailMessage:
         mock_aiogoogle.as_user.assert_called_once()
     
     @pytest.mark.asyncio
-    @patch('src.google_api_client.clients.gmail.async_client.async_gmail_service')
-    async def test_mark_as_read(self, mock_context):
+    async def test_mark_as_read(self, mock_get_async_gmail_service, mock_async_gmail_context):
         """Test marking email as read asynchronously."""
-        # Setup mock async context manager
-        mock_aiogoogle = AsyncMock()
-        mock_service = Mock()
-        mock_context.return_value.__aenter__.return_value = (mock_aiogoogle, mock_service)
+        # Setup mock
+        mock_aiogoogle, mock_service = mock_async_gmail_context
+        mock_get_async_gmail_service.return_value.__aenter__.return_value = (mock_aiogoogle, mock_service)
         
         email = AsyncEmailMessage(message_id="msg_123", is_read=False)
         result = await email.mark_as_read()
@@ -483,13 +465,11 @@ class TestAsyncEmailMessage:
         mock_aiogoogle.as_user.assert_called_once()
     
     @pytest.mark.asyncio
-    @patch('src.google_api_client.clients.gmail.async_client.async_gmail_service')
-    async def test_add_label(self, mock_context):
+    async def test_add_label(self, mock_get_async_gmail_service, mock_async_gmail_context):
         """Test adding labels to email asynchronously."""
-        # Setup mock async context manager
-        mock_aiogoogle = AsyncMock()
-        mock_service = Mock()
-        mock_context.return_value.__aenter__.return_value = (mock_aiogoogle, mock_service)
+        # Setup mock
+        mock_aiogoogle, mock_service = mock_async_gmail_context
+        mock_get_async_gmail_service.return_value.__aenter__.return_value = (mock_aiogoogle, mock_service)
         
         email = AsyncEmailMessage(message_id="msg_123", label_ids=["INBOX"])
         result = await email.add_label(["IMPORTANT", "STARRED"])
@@ -502,13 +482,11 @@ class TestAsyncEmailMessage:
         mock_aiogoogle.as_user.assert_called_once()
     
     @pytest.mark.asyncio
-    @patch('src.google_api_client.clients.gmail.async_client.async_gmail_service')
-    async def test_batch_get_emails(self, mock_context, sample_gmail_message):
+    async def test_batch_get_emails(self, sample_gmail_message, mock_get_async_gmail_service, mock_async_gmail_context):
         """Test batch getting emails asynchronously."""
-        # Setup mock async context manager
-        mock_aiogoogle = AsyncMock()
-        mock_service = Mock()
-        mock_context.return_value.__aenter__.return_value = (mock_aiogoogle, mock_service)
+        # Setup mock
+        mock_aiogoogle, mock_service = mock_async_gmail_context
+        mock_get_async_gmail_service.return_value.__aenter__.return_value = (mock_aiogoogle, mock_service)
         
         # Mock get_email method
         with patch.object(AsyncEmailMessage, 'get_email') as mock_get_email:
@@ -527,13 +505,11 @@ class TestAsyncEmailMessage:
             assert mock_get_email.call_count == 2
     
     @pytest.mark.asyncio
-    @patch('src.google_api_client.clients.gmail.async_client.async_gmail_service')
-    async def test_batch_send_emails(self, mock_context):
+    async def test_batch_send_emails(self, mock_get_async_gmail_service, mock_async_gmail_context):
         """Test batch sending emails asynchronously."""
-        # Setup mock async context manager  
-        mock_aiogoogle = AsyncMock()
-        mock_service = Mock()
-        mock_context.return_value.__aenter__.return_value = (mock_aiogoogle, mock_service)
+        # Setup mock
+        mock_aiogoogle, mock_service = mock_async_gmail_context
+        mock_get_async_gmail_service.return_value.__aenter__.return_value = (mock_aiogoogle, mock_service)
         
         # Mock send_email method
         with patch.object(AsyncEmailMessage, 'send_email') as mock_send_email:
@@ -576,26 +552,3 @@ class TestAsyncEmailMessage:
         assert "This is a test email..." in repr_str
         assert "INBOX" in repr_str
 
-
-@pytest.fixture
-def sample_gmail_message():
-    """Sample Gmail API message response."""
-    return {
-        "id": "msg_123",
-        "threadId": "thread_456",
-        "snippet": "This is a test email snippet...",
-        "labelIds": ["INBOX", "UNREAD"],
-        "payload": {
-            "headers": [
-                {"name": "From", "value": "sender@example.com"},
-                {"name": "To", "value": "recipient@example.com"},
-                {"name": "Subject", "value": "Test Email Subject"},
-                {"name": "Date", "value": "Mon, 15 Jan 2025 09:00:00 -0500"},
-                {"name": "Message-ID", "value": "<msg123@example.com>"}
-            ],
-            "body": {
-                "data": "VGhpcyBpcyBhIHRlc3QgZW1haWwgYm9keS4="  # Base64: "This is a test email body."
-            },
-            "mimeType": "text/plain"
-        }
-    }

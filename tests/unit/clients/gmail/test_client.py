@@ -1,6 +1,6 @@
 import pytest
 from datetime import datetime, date
-from unittest.mock import Mock, patch, MagicMock
+from unittest.mock import Mock, MagicMock, patch
 from src.google_api_client.clients.gmail.client import (
     EmailMessage, EmailAddress, EmailAttachment, Label, 
     GmailError, GmailPermissionError, EmailNotFoundError
@@ -151,12 +151,10 @@ class TestEmailAttachment:
         }
         assert result == expected
     
-    @patch('src.google_api_client.clients.gmail.client.gmail_service')
-    def test_get_attachment_data(self, mock_context):
+    def test_get_attachment_data(self, mock_get_gmail_service, mock_gmail_service):
         """Test getting attachment data."""
         # Setup mock service
-        mock_service = Mock()
-        mock_context.return_value.__enter__.return_value = mock_service
+        mock_service = mock_gmail_service
         
         # Mock API response
         mock_attachment_response = {
@@ -207,12 +205,10 @@ class TestLabel:
         with pytest.raises(ValueError, match="Label name cannot be empty"):
             Label(id="label_123", name="", type="user")
     
-    @patch('src.google_api_client.clients.gmail.client.gmail_service')
-    def test_list_labels(self, mock_context):
+    def test_list_labels(self, mock_get_gmail_service, mock_gmail_service):
         """Test listing labels."""
         # Setup mock service
-        mock_service = Mock()
-        mock_context.return_value.__enter__.return_value = mock_service
+        mock_service = mock_gmail_service
         
         # Mock API response
         mock_labels_response = {
@@ -237,12 +233,10 @@ class TestLabel:
         # Verify API was called correctly
         mock_service.users.return_value.labels.return_value.list.assert_called_once_with(userId='me')
     
-    @patch('src.google_api_client.clients.gmail.client.gmail_service')
-    def test_create_label(self, mock_context):
+    def test_create_label(self, mock_get_gmail_service, mock_gmail_service):
         """Test creating a label."""
         # Setup mock service
-        mock_service = Mock()
-        mock_context.return_value.__enter__.return_value = mock_service
+        mock_service = mock_gmail_service
         
         # Mock API response
         mock_create_response = {
@@ -264,12 +258,10 @@ class TestLabel:
             body={'name': 'My Custom Label', 'type': 'user'}
         )
     
-    @patch('src.google_api_client.clients.gmail.client.gmail_service')
-    def test_delete_label(self, mock_context):
+    def test_delete_label(self, mock_get_gmail_service, mock_gmail_service):
         """Test deleting a label."""
         # Setup mock service
-        mock_service = Mock()
-        mock_context.return_value.__enter__.return_value = mock_service
+        mock_service = mock_gmail_service
         
         label = Label(id="label_123", name="To Delete", type="user")
         result = label.delete_label()
@@ -440,12 +432,10 @@ class TestEmailMessage:
         assert email.has_label("IMPORTANT") is True
         assert email.has_label("DRAFT") is False
     
-    @patch('src.google_api_client.clients.gmail.client.gmail_service')
-    def test_list_emails(self, mock_context, sample_gmail_message):
+    def test_list_emails(self, mock_get_gmail_service, mock_gmail_service, sample_gmail_message):
         """Test listing emails."""
         # Setup mock service
-        mock_service = Mock()
-        mock_context.return_value.__enter__.return_value = mock_service
+        mock_service = mock_gmail_service
         
         # Mock API responses
         mock_list_response = {
@@ -476,12 +466,10 @@ class TestEmailMessage:
             includeSpamTrash=False
         )
     
-    @patch('src.google_api_client.clients.gmail.client.gmail_service')
-    def test_get_email(self, mock_context, sample_gmail_message):
+    def test_get_email(self, mock_get_gmail_service, mock_gmail_service, sample_gmail_message):
         """Test getting a specific email."""
         # Setup mock service
-        mock_service = Mock()
-        mock_context.return_value.__enter__.return_value = mock_service
+        mock_service = mock_gmail_service
         mock_service.users.return_value.messages.return_value.get.return_value.execute.return_value = sample_gmail_message
         
         email = EmailMessage.get_email("msg_123")
@@ -497,12 +485,10 @@ class TestEmailMessage:
             format='full'
         )
     
-    @patch('src.google_api_client.clients.gmail.client.gmail_service')
-    def test_send_email(self, mock_context):
+    def test_send_email(self, mock_get_gmail_service, mock_gmail_service):
         """Test sending an email."""
         # Setup mock service
-        mock_service = Mock()
-        mock_context.return_value.__enter__.return_value = mock_service
+        mock_service = mock_gmail_service
         
         # Mock send response
         mock_send_response = {'id': 'msg_sent_123'}
@@ -528,12 +514,10 @@ class TestEmailMessage:
         assert send_call[1]['userId'] == 'me'
         assert 'raw' in send_call[1]['body']
     
-    @patch('src.google_api_client.clients.gmail.client.gmail_service')
-    def test_mark_as_read(self, mock_context):
+    def test_mark_as_read(self, mock_get_gmail_service, mock_gmail_service):
         """Test marking email as read."""
         # Setup mock service
-        mock_service = Mock()
-        mock_context.return_value.__enter__.return_value = mock_service
+        mock_service = mock_gmail_service
         
         email = EmailMessage(message_id="msg_123", is_read=False)
         result = email.mark_as_read()
@@ -548,12 +532,10 @@ class TestEmailMessage:
             body={'removeLabelIds': ['UNREAD']}
         )
     
-    @patch('src.google_api_client.clients.gmail.client.gmail_service')
-    def test_add_label(self, mock_context):
+    def test_add_label(self, mock_get_gmail_service, mock_gmail_service):
         """Test adding labels to email."""
         # Setup mock service
-        mock_service = Mock()
-        mock_context.return_value.__enter__.return_value = mock_service
+        mock_service = mock_gmail_service
         
         email = EmailMessage(message_id="msg_123", label_ids=["INBOX"])
         result = email.add_label(["IMPORTANT", "STARRED"])
@@ -590,25 +572,3 @@ class TestEmailMessage:
         assert "INBOX" in repr_str
 
 
-@pytest.fixture
-def sample_gmail_message():
-    """Sample Gmail API message response."""
-    return {
-        "id": "msg_123",
-        "threadId": "thread_456",
-        "snippet": "This is a test email snippet...",
-        "labelIds": ["INBOX", "UNREAD"],
-        "payload": {
-            "headers": [
-                {"name": "From", "value": "sender@example.com"},
-                {"name": "To", "value": "recipient@example.com"},
-                {"name": "Subject", "value": "Test Email Subject"},
-                {"name": "Date", "value": "Mon, 15 Jan 2025 09:00:00 -0500"},
-                {"name": "Message-ID", "value": "<msg123@example.com>"}
-            ],
-            "body": {
-                "data": "VGhpcyBpcyBhIHRlc3QgZW1haWwgYm9keS4="  # Base64: "This is a test email body."
-            },
-            "mimeType": "text/plain"
-        }
-    }

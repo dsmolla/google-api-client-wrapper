@@ -56,16 +56,28 @@ def sample_datetime_end():
     return combine_with_timezone(date(2025, 1, 15), datetime.min.time().replace(hour=10))
 
 @pytest.fixture
-def mock_get_calendar_service():
-    """Mock the get_calendar_service function."""
-    with patch('src.google_api_client.auth.oauth.get_calendar_service') as mock:
-        yield mock
+def mock_get_calendar_service(mock_calendar_service):
+    """Mock the calendar_service context manager."""
+    with patch('src.google_api_client.clients.calendar.client.calendar_service') as mock_context:
+        mock_context.return_value.__enter__.return_value = mock_calendar_service
+        mock_context.return_value.__exit__.return_value = None
+        yield mock_context
 
 @pytest.fixture
-def mock_get_async_calendar_service():
+def mock_get_async_calendar_service(mock_async_calendar_context):
     """Mock the async calendar service context manager."""
-    with patch('src.google_api_client.auth.credentials.get_async_calendar_service') as mock:
-        yield mock
+    with patch('src.google_api_client.clients.calendar.async_client.async_calendar_service') as mock_context:
+        mock_context.return_value.__aenter__.return_value = mock_async_calendar_context
+        mock_context.return_value.__aexit__.return_value = None
+        yield mock_context
+
+@pytest.fixture
+def mock_async_calendar_context():
+    """Mock async calendar service context with aiogoogle and service."""
+    from unittest.mock import AsyncMock
+    mock_aiogoogle = AsyncMock()
+    mock_calendar_service = Mock()
+    return mock_aiogoogle, mock_calendar_service
 
 # Gmail-specific fixtures
 @pytest.fixture
@@ -133,13 +145,38 @@ def sample_gmail_label():
     }
 
 @pytest.fixture
-def mock_get_gmail_service():
-    """Mock the get_gmail_service function."""
-    with patch('src.google_api_client.auth.oauth.get_gmail_service') as mock:
-        yield mock
+def mock_get_gmail_service(mock_gmail_service):
+    """Mock the gmail_service context manager."""
+    with patch('src.google_api_client.clients.gmail.client.gmail_service') as mock_context:
+        mock_context.return_value.__enter__.return_value = mock_gmail_service
+        mock_context.return_value.__exit__.return_value = None
+        yield mock_context
 
 @pytest.fixture
-def mock_get_async_gmail_service():
+def mock_get_async_gmail_service(mock_async_gmail_context):
     """Mock the async Gmail service context manager."""
-    with patch('src.google_api_client.auth.credentials.get_async_gmail_service') as mock:
+    with patch('src.google_api_client.clients.gmail.async_client.async_gmail_service') as mock_context:
+        mock_context.return_value.__aenter__.return_value = mock_async_gmail_context
+        mock_context.return_value.__aexit__.return_value = None
+        yield mock_context
+
+@pytest.fixture
+def mock_async_gmail_context():
+    """Mock async Gmail service context with aiogoogle and service."""
+    from unittest.mock import AsyncMock
+    mock_aiogoogle = AsyncMock()
+    mock_gmail_service = Mock()
+    return mock_aiogoogle, mock_gmail_service
+
+# Auth manager fixtures for error handling tests
+@pytest.fixture
+def mock_auth_manager_get_calendar_service():
+    """Mock the auth manager get_calendar_service method."""
+    with patch('src.google_api_client.auth.manager.auth_manager.get_calendar_service') as mock:
+        yield mock
+
+@pytest.fixture  
+def mock_auth_manager_get_async_calendar_service():
+    """Mock the auth manager get_async_calendar_service method."""
+    with patch('src.google_api_client.auth.manager.auth_manager.get_async_calendar_service') as mock:
         yield mock

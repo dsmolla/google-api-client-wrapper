@@ -242,16 +242,13 @@ class TestCalendarEvent:
         assert event.has_attendee("missing@example.com") is False
     
     @patch('src.google_api_client.clients.calendar.client.calendar_service')
-    def test_list_events(self, mock_context, sample_google_event):
+    def test_list_events(self, mock_context, sample_google_event, mock_calendar_service):
         """Test list_events class method."""
         # Setup mock
-        mock_service = Mock()
-        mock_events = Mock()
-        mock_service.events.return_value = mock_events
-        mock_events.list.return_value.execute.return_value = {
+        mock_calendar_service.events().list().execute.return_value = {
             "items": [sample_google_event]
         }
-        mock_context.return_value.__enter__.return_value = mock_service
+        mock_context.return_value.__enter__.return_value = mock_calendar_service
         
         # Test
         events = CalendarEvent.list_events(number_of_results=10)
@@ -260,7 +257,7 @@ class TestCalendarEvent:
         assert len(events) == 1
         assert events[0].id == "test_event_123"
         assert events[0].summary == "Test Meeting"
-        mock_events.list.assert_called_once()
+        mock_calendar_service.events().list.assert_called()
     
     def test_list_events_validation(self):
         """Test list_events input validation."""
@@ -271,14 +268,11 @@ class TestCalendarEvent:
             CalendarEvent.list_events(query="x" * 501)
     
     @patch('src.google_api_client.clients.calendar.client.calendar_service')
-    def test_get_event(self, mock_context, sample_google_event):
+    def test_get_event(self, mock_context, sample_google_event, mock_calendar_service):
         """Test get_event class method."""
         # Setup mock
-        mock_service = Mock()
-        mock_events = Mock()
-        mock_service.events.return_value = mock_events
-        mock_events.get.return_value.execute.return_value = sample_google_event
-        mock_context.return_value.__enter__.return_value = mock_service
+        mock_calendar_service.events().get().execute.return_value = sample_google_event
+        mock_context.return_value.__enter__.return_value = mock_calendar_service
         
         # Test
         event = CalendarEvent.get_event("test_123")
@@ -286,17 +280,14 @@ class TestCalendarEvent:
         # Assertions
         assert event.id == "test_event_123"
         assert event.summary == "Test Meeting"
-        mock_events.get.assert_called_once_with(calendarId="primary", eventId="test_123")
+        mock_calendar_service.events().get.assert_called_with(calendarId="primary", eventId="test_123")
     
     @patch('src.google_api_client.clients.calendar.client.calendar_service')
-    def test_create_event(self, mock_context, sample_datetime, sample_datetime_end, sample_google_event):
+    def test_create_event(self, mock_context, sample_datetime, sample_datetime_end, sample_google_event, mock_calendar_service):
         """Test create_event class method."""
         # Setup mock
-        mock_service = Mock()
-        mock_events = Mock()
-        mock_service.events.return_value = mock_events
-        mock_events.insert.return_value.execute.return_value = sample_google_event
-        mock_context.return_value.__enter__.return_value = mock_service
+        mock_calendar_service.events().insert().execute.return_value = sample_google_event
+        mock_context.return_value.__enter__.return_value = mock_calendar_service
         
         # Test
         event = CalendarEvent.create_event(
@@ -309,7 +300,7 @@ class TestCalendarEvent:
         # Assertions
         assert event.id == "test_event_123"
         assert event.summary == "Test Meeting"
-        mock_events.insert.assert_called_once()
+        mock_calendar_service.events().insert.assert_called()
     
     def test_create_event_validation(self, sample_datetime):
         """Test create_event input validation."""
@@ -317,13 +308,10 @@ class TestCalendarEvent:
             CalendarEvent.create_event(start=sample_datetime, end=sample_datetime)
     
     @patch('src.google_api_client.clients.calendar.client.calendar_service')
-    def test_sync_changes(self, mock_context, sample_datetime, sample_datetime_end):
+    def test_sync_changes(self, mock_context, sample_datetime, sample_datetime_end, mock_calendar_service):
         """Test sync_changes instance method."""
         # Setup mock
-        mock_service = Mock()
-        mock_events = Mock()
-        mock_service.events.return_value = mock_events
-        mock_context.return_value.__enter__.return_value = mock_service
+        mock_context.return_value.__enter__.return_value = mock_calendar_service
         
         # Test
         event = CalendarEvent(
@@ -335,35 +323,29 @@ class TestCalendarEvent:
         event.sync_changes()
         
         # Assertions
-        mock_events.update.assert_called_once()
-        call_args = mock_events.update.call_args
+        mock_calendar_service.events().update.assert_called()
+        call_args = mock_calendar_service.events().update.call_args
         assert call_args[1]['calendarId'] == "primary"
         assert call_args[1]['eventId'] == "test_123"
     
     @patch('src.google_api_client.clients.calendar.client.calendar_service')
-    def test_delete_event(self, mock_context):
+    def test_delete_event(self, mock_context, mock_calendar_service):
         """Test delete_event instance method."""
         # Setup mock
-        mock_service = Mock()
-        mock_events = Mock()
-        mock_service.events.return_value = mock_events
-        mock_context.return_value.__enter__.return_value = mock_service
+        mock_context.return_value.__enter__.return_value = mock_calendar_service
         
         # Test
         event = CalendarEvent(id="test_123")
         event.delete_event()
         
         # Assertions
-        mock_events.delete.assert_called_once_with(calendarId="primary", eventId="test_123")
+        mock_calendar_service.events().delete.assert_called_once_with(calendarId="primary", eventId="test_123")
     
     @patch('src.google_api_client.clients.calendar.client.calendar_service')
-    def test_update_methods(self, mock_context, sample_datetime, sample_datetime_end):
+    def test_update_methods(self, mock_context, sample_datetime, sample_datetime_end, mock_calendar_service):
         """Test various update methods."""
         # Setup mock
-        mock_service = Mock()
-        mock_events = Mock()
-        mock_service.events.return_value = mock_events
-        mock_context.return_value.__enter__.return_value = mock_service
+        mock_context.return_value.__enter__.return_value = mock_calendar_service
         
         # Test event
         event = CalendarEvent(
@@ -386,4 +368,4 @@ class TestCalendarEvent:
         assert event.location == "New Location"
         
         # All should trigger sync_changes (update API calls)
-        assert mock_events.update.call_count == 3
+        assert mock_calendar_service.events().update.call_count == 3
