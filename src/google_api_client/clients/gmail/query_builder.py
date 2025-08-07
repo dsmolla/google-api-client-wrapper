@@ -261,7 +261,7 @@ class EmailQueryBuilder:
         Returns:
             Self for method chaining
         """
-        days_since_monday = date.weekday(date.today())
+        days_since_monday = date.weekday(date.today() ) + 1  # Monday is 0, so we add 1 to include today
         return self.last_days(days_since_monday)
         
     def this_month(self) -> "EmailQueryBuilder":
@@ -270,7 +270,7 @@ class EmailQueryBuilder:
         Returns:
             Self for method chaining
         """
-        days_since_month_started = date.today().day
+        days_since_month_started = date.today().day # Days in current month
         return self.last_days(days_since_month_started)
         
     def larger_than(self, size_mb: int) -> "EmailQueryBuilder":

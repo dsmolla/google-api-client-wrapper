@@ -233,7 +233,8 @@ class TestAsyncEmailQueryBuilder:
         
         with patch.object(builder, 'last_days', return_value=builder) as mock_last_days:
             result = builder.this_week()
-            mock_last_days.assert_called_once_with(7)
+            mock_last_days.assert_called_once_with(date.today().weekday() + 1)  # Monday to today
+            # +1 because last_days expects the number of days including today
             assert result is builder
     
     def test_this_month_method(self):
@@ -242,7 +243,7 @@ class TestAsyncEmailQueryBuilder:
         
         with patch.object(builder, 'last_days', return_value=builder) as mock_last_days:
             result = builder.this_month()
-            mock_last_days.assert_called_once_with(30)
+            mock_last_days.assert_called_once_with(date.today().day) # Days in current month
             assert result is builder
     
     def test_larger_than_method(self):

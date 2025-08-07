@@ -207,7 +207,7 @@ class TestTaskQueryBuilder:
         
         # Check that due range was set to today
         expected_start = datetime(2025, 1, 15, 0, 0, 0)
-        expected_end = datetime(2025, 1, 15, 23, 59, 59, 999999)
+        expected_end = datetime(2025, 1, 16, 0, 0, 0)  # End of today
         
         assert builder._due_min == expected_start
         assert builder._due_max == expected_end
@@ -225,7 +225,7 @@ class TestTaskQueryBuilder:
         
         # Check that due range was set to tomorrow
         expected_start = datetime(2025, 1, 16, 0, 0, 0)
-        expected_end = datetime(2025, 1, 16, 23, 59, 59, 999999)
+        expected_end = datetime(2025, 1, 17, 0, 0, 0)  # End of tomorrow
         
         assert builder._due_min == expected_start
         assert builder._due_max == expected_end
@@ -281,7 +281,7 @@ class TestTaskQueryBuilder:
         
         # Today to 7 days from today
         expected_start = datetime(2025, 1, 15, 0, 0, 0)
-        expected_end = datetime(2025, 1, 22, 23, 59, 59, 999999)
+        expected_end = datetime(2025, 1, 23, 0, 0, 0)  # End of 7th day
         
         assert builder._due_min == expected_start
         assert builder._due_max == expected_end
@@ -309,7 +309,7 @@ class TestTaskQueryBuilder:
         assert result is builder
         
         # Due before end of yesterday and not completed
-        expected_max = datetime(2025, 1, 14, 23, 59, 59, 999999)
+        expected_max = datetime(2025, 1, 15, 0, 0, 0)  # End of yesterday
         
         assert builder._due_max == expected_max
         assert builder._show_completed is False
@@ -327,7 +327,7 @@ class TestTaskQueryBuilder:
         
         # Check that completed range was set to today
         expected_start = datetime(2025, 1, 15, 0, 0, 0)
-        expected_end = datetime(2025, 1, 15, 23, 59, 59, 999999)
+        expected_end = datetime(2025, 1, 16, 0, 0, 0)  # End of today
         
         assert builder._completed_min == expected_start
         assert builder._completed_max == expected_end

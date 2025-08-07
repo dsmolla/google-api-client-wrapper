@@ -30,6 +30,36 @@ DEFAULT_MAX_RESULTS = 30
 # Import exceptions from centralized location
 from ...exceptions.gmail import GmailError as AsyncGmailError, GmailPermissionError as AsyncGmailPermissionError, EmailNotFoundError as AsyncEmailNotFoundError
 
+
+def _sanitize_header_value(value: str) -> str:
+    """
+    Sanitize a string value for safe use in HTTP headers.
+    
+    Prevents header injection by removing control characters that could 
+    be used to inject additional headers or corrupt the MIME structure.
+    
+    Args:
+        value: The string to sanitize
+        
+    Returns:
+        Sanitized string safe for use in headers
+    """
+    if not value:
+        return ""
+        
+    # Remove control characters that could cause header injection
+    # This includes \r, \n, \0, and other control characters
+    sanitized = re.sub(r'[\r\n\x00-\x1f\x7f-\x9f]', '', value)
+    
+    # Remove any quotes that could break the header structure
+    sanitized = sanitized.replace('"', '')
+    
+    # Limit length to prevent overly long headers
+    if len(sanitized) > 255:
+        sanitized = sanitized[:255]
+    
+    return sanitized.strip()
+
 @asynccontextmanager
 async def async_gmail_service():
     """Async context manager for Gmail service connections with error handling."""
@@ -557,6 +587,11 @@ class AsyncEmailMessage:
     ) -> str:
         """
         Creates a MIMEText email message.
+        
+        Security: Attachment filenames are sanitized to prevent header injection attacks.
+        Filenames containing control characters (CRLF, etc.) that could inject additional 
+        headers are automatically cleaned.
+        
         Args:
             to: List of recipient email addresses.
             subject: The subject line of the email.
@@ -624,9 +659,11 @@ class AsyncEmailMessage:
                         attachment = MIMEBase(main_type, sub_type)
                         attachment.set_payload(fp.read())
                         encoders.encode_base64(attachment)
+                        # Sanitize filename to prevent header injection
+                        safe_filename = _sanitize_header_value(os.path.basename(file_path))
                         attachment.add_header(
                             'Content-Disposition',
-                            f'attachment; filename= {os.path.basename(file_path)}'
+                            f'attachment; filename="{safe_filename}"'
                         )
                         message.attach(attachment)
 

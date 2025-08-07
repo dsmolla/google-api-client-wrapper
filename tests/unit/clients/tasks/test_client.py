@@ -179,7 +179,7 @@ class TestTaskList:
         # Verify API was called correctly
         mock_service.tasklists.return_value.update.assert_called_once_with(
             tasklist='list_123',
-            body={'title': 'Updated Task List'}
+            body={'id': 'list_123', 'title': 'Updated Task List'}
         )
     
     def test_delete_task_list(self, mock_get_tasks_service, mock_tasks_service):

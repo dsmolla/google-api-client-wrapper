@@ -223,7 +223,7 @@ class TaskQueryBuilder:
             
         today = date.today()
         start = datetime.combine(today, datetime.min.time())
-        end = datetime.combine(today + timedelta(days=days + 1), datetime.max.time())
+        end = datetime.combine(today + timedelta(days=days + 1), datetime.min.time())
         return self.due_in_range(start, end)
         
     def overdue(self) -> "TaskQueryBuilder":

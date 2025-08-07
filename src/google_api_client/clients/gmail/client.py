@@ -29,6 +29,36 @@ DEFAULT_MAX_RESULTS = 30
 # Import exceptions from centralized location
 from ...exceptions.gmail import GmailError, GmailPermissionError, EmailNotFoundError
 
+
+def _sanitize_header_value(value: str) -> str:
+    """
+    Sanitize a string value for safe use in HTTP headers.
+    
+    Prevents header injection by removing control characters that could 
+    be used to inject additional headers or corrupt the MIME structure.
+    
+    Args:
+        value: The string to sanitize
+        
+    Returns:
+        Sanitized string safe for use in headers
+    """
+    if not value:
+        return ""
+        
+    # Remove control characters that could cause header injection
+    # This includes \r, \n, \0, and other control characters
+    sanitized = re.sub(r'[\r\n\x00-\x1f\x7f-\x9f]', '', value)
+    
+    # Remove any quotes that could break the header structure
+    sanitized = sanitized.replace('"', '')
+    
+    # Limit length to prevent overly long headers
+    if len(sanitized) > 255:
+        sanitized = sanitized[:255]
+    
+    return sanitized.strip()
+
 @contextmanager
 def gmail_service():
     """Context manager for Gmail service connections with error handling."""
@@ -143,18 +173,43 @@ class EmailAttachment:
     def download_attachment(self, directory: str) -> bool:
         """
         Downloads the attachment from the Gmail API and saves it into the specified directory with the original filename.
+        
+        Security: This method includes path traversal protection to prevent malicious filenames 
+        from accessing files outside the specified directory. Filenames containing path separators
+        or attempting directory traversal (e.g., '../../../etc/passwd') will be rejected.
+        
         Args:
             directory: The destination directory for the attachment.
 
         Returns:
             True if the attachment was successfully downloaded.
+            
+        Raises:
+            ValueError: If filename contains path traversal attempts or invalid path separators.
         """
         if not os.path.exists(directory):
             os.makedirs(directory)
         if not os.path.isdir(directory):
             raise ValueError(f"Provided path '{directory}' is not a directory.")
 
+        # Security: Prevent path traversal attacks
+        resolved_directory = os.path.realpath(directory)
         file_path = os.path.join(directory, self.filename)
+        resolved_file_path = os.path.realpath(file_path)
+        
+        # Ensure the resolved file path is within the intended directory
+        # Use os.path.commonpath to check if they share the same root path
+        try:
+            common_path = os.path.commonpath([resolved_directory, resolved_file_path])
+            if common_path != resolved_directory:
+                raise ValueError("Security error: Path traversal detected in filename.")
+        except ValueError:
+            # os.path.commonpath raises ValueError if paths are on different drives (Windows)
+            raise ValueError("Security error: Path traversal detected in filename.")
+            
+        # Additional check: ensure no path separators in filename itself
+        if os.sep in self.filename or (os.altsep and os.altsep in self.filename):
+            raise ValueError("Security error: Path separators not allowed in filename.")
         logger.info("Downloading attachment %s[%s] from message %s to %s",
                     self.attachment_id, self.filename, self.message_id, file_path)
         try:
@@ -555,6 +610,11 @@ class EmailMessage:
     ) -> str:
         """
         Creates a MIMEText email message.
+        
+        Security: Attachment filenames are sanitized to prevent header injection attacks.
+        Filenames containing control characters (CRLF, etc.) that could inject additional 
+        headers are automatically cleaned.
+        
         Args:
             to: List of recipient email addresses.
             subject: The subject line of the email.
@@ -622,9 +682,11 @@ class EmailMessage:
                         attachment = MIMEBase(main_type, sub_type)
                         attachment.set_payload(fp.read())
                         encoders.encode_base64(attachment)
+                        # Sanitize filename to prevent header injection
+                        safe_filename = _sanitize_header_value(os.path.basename(file_path))
                         attachment.add_header(
                             'Content-Disposition',
-                            f'attachment; filename= {os.path.basename(file_path)}'
+                            f'attachment; filename="{safe_filename}"'
                         )
                         message.attach(attachment)
 
