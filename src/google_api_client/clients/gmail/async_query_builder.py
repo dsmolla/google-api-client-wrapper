@@ -261,7 +261,8 @@ class AsyncEmailQueryBuilder:
         Returns:
             Self for method chaining
         """
-        return self.last_days(7)
+        days_since_monday = date.weekday(date.today())
+        return self.last_days(days_since_monday)
         
     def this_month(self) -> "AsyncEmailQueryBuilder":
         """
@@ -269,7 +270,8 @@ class AsyncEmailQueryBuilder:
         Returns:
             Self for method chaining
         """
-        return self.last_days(30)
+        days_since_start_of_month = date.today().day
+        return self.last_days(days_since_start_of_month)
         
     def larger_than(self, size_mb: int) -> "AsyncEmailQueryBuilder":
         """
