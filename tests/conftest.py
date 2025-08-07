@@ -180,3 +180,59 @@ def mock_auth_manager_get_async_calendar_service():
     """Mock the auth manager get_async_calendar_service method."""
     with patch('src.google_api_client.auth.manager.auth_manager.get_async_calendar_service') as mock:
         yield mock
+
+# Tasks-specific fixtures
+@pytest.fixture
+def mock_tasks_service():
+    """Mock tasks service for testing."""
+    mock_service = Mock()
+    mock_tasks = Mock()
+    mock_tasklists = Mock()
+    mock_service.tasks.return_value = mock_tasks
+    mock_service.tasklists.return_value = mock_tasklists
+    return mock_service
+
+@pytest.fixture
+def sample_task_response():
+    """Sample Google Tasks API task response."""
+    return {
+        "id": "task_123",
+        "title": "Sample Task",
+        "notes": "This is a sample task for testing",
+        "status": "needsAction",
+        "due": "2025-01-20T00:00:00.000Z",
+        "updated": "2025-01-15T10:00:00.000Z"
+    }
+
+@pytest.fixture
+def sample_task_list_response():
+    """Sample Google Tasks API task list response."""
+    return {
+        "id": "list_123",
+        "title": "Sample Task List",
+        "updated": "2025-01-15T10:00:00.000Z"
+    }
+
+@pytest.fixture
+def mock_get_tasks_service(mock_tasks_service):
+    """Mock the tasks_service context manager."""
+    with patch('src.google_api_client.clients.tasks.client.tasks_service') as mock_context:
+        mock_context.return_value.__enter__.return_value = mock_tasks_service
+        mock_context.return_value.__exit__.return_value = None
+        yield mock_context
+
+@pytest.fixture
+def mock_get_async_tasks_service(mock_async_tasks_context):
+    """Mock the async tasks service context manager."""
+    with patch('src.google_api_client.clients.tasks.async_client.async_tasks_service') as mock_context:
+        mock_context.return_value.__aenter__.return_value = mock_async_tasks_context
+        mock_context.return_value.__aexit__.return_value = None
+        yield mock_context
+
+@pytest.fixture
+def mock_async_tasks_context():
+    """Mock async tasks service context with aiogoogle and service."""
+    from unittest.mock import AsyncMock
+    mock_aiogoogle = AsyncMock()
+    mock_tasks_service = Mock()
+    return mock_aiogoogle, mock_tasks_service

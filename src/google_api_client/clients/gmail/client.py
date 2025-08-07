@@ -660,7 +660,7 @@ class EmailMessage:
     @classmethod
     def list_emails(
             cls,
-            max_results: Optional[int] = 30,
+            max_results: Optional[int] = DEFAULT_MAX_RESULTS,
             query: Optional[str] = None,
             include_spam_trash: bool = False,
             label_ids: Optional[List[str]] = None
