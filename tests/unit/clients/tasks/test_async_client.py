@@ -9,9 +9,6 @@ from src.google_api_client.clients.tasks.async_client import (
 
 @pytest.mark.unit
 @pytest.mark.tasks
-@pytest.mark.asyncio
-
-
 class TestAsyncTaskList:
     """Test cases for the AsyncTaskList class."""
     
@@ -84,6 +81,7 @@ class TestAsyncTaskList:
         expected = {"title": "My List"}
         assert result == expected
     
+    @pytest.mark.asyncio
     async def test_list_task_lists(self, mock_get_async_tasks_service, mock_async_tasks_context):
         """Test listing task lists asynchronously."""
         # Setup mock async context manager
@@ -110,6 +108,7 @@ class TestAsyncTaskList:
         # Verify API was called correctly
         mock_aiogoogle.as_service_account.assert_called_once()
     
+    @pytest.mark.asyncio
     async def test_get_task_list(self, mock_get_async_tasks_service, mock_async_tasks_context):
         """Test getting a specific task list asynchronously."""
         # Setup mock async context manager
@@ -132,6 +131,7 @@ class TestAsyncTaskList:
         # Verify API was called correctly
         mock_aiogoogle.as_service_account.assert_called_once()
     
+    @pytest.mark.asyncio
     async def test_create_task_list(self, mock_get_async_tasks_service, mock_async_tasks_context):
         """Test creating a task list asynchronously."""
         # Setup mock async context manager
@@ -154,12 +154,14 @@ class TestAsyncTaskList:
         # Verify API was called correctly
         mock_aiogoogle.as_service_account.assert_called_once()
     
+    @pytest.mark.asyncio
     async def test_create_task_list_invalid_title_length(self):
         """Test creating task list with invalid title length."""
         long_title = "x" * 1025
         with pytest.raises(ValueError, match="TaskList title cannot exceed"):
             await AsyncTaskList.create_task_list(long_title)
     
+    @pytest.mark.asyncio
     async def test_update_task_list(self, mock_get_async_tasks_service, mock_async_tasks_context):
         """Test updating a task list asynchronously."""
         # Setup mock async context manager
@@ -183,6 +185,7 @@ class TestAsyncTaskList:
         # Verify API was called correctly
         mock_aiogoogle.as_service_account.assert_called_once()
     
+    @pytest.mark.asyncio
     async def test_delete_task_list(self, mock_get_async_tasks_service, mock_async_tasks_context):
         """Test deleting a task list asynchronously."""
         # Setup mock async context manager
@@ -326,6 +329,7 @@ class TestAsyncTask:
         expected = {"title": "Simple Task"}
         assert result == expected
     
+    @pytest.mark.asyncio
     async def test_list_tasks(self, mock_get_async_tasks_service, mock_async_tasks_context):
         """Test listing tasks asynchronously."""
         # Setup mock async context manager
@@ -364,6 +368,7 @@ class TestAsyncTask:
         # Verify API was called correctly
         mock_aiogoogle.as_service_account.assert_called_once()
     
+    @pytest.mark.asyncio
     async def test_list_tasks_invalid_max_results(self):
         """Test listing tasks with invalid max_results."""
         with pytest.raises(ValueError, match="max_results must be between"):
@@ -372,6 +377,7 @@ class TestAsyncTask:
         with pytest.raises(ValueError, match="max_results must be between"):
             await AsyncTask.list_tasks(max_results=101)
     
+    @pytest.mark.asyncio
     async def test_get_task(self, mock_get_async_tasks_service, mock_async_tasks_context):
         """Test getting a specific task asynchronously."""
         # Setup mock async context manager
@@ -397,6 +403,7 @@ class TestAsyncTask:
         # Verify API was called correctly
         mock_aiogoogle.as_service_account.assert_called_once()
     
+    @pytest.mark.asyncio
     async def test_create_task(self, mock_get_async_tasks_service, mock_async_tasks_context):
         """Test creating a task asynchronously."""
         # Setup mock async context manager
@@ -428,6 +435,7 @@ class TestAsyncTask:
         # Verify API was called correctly
         mock_aiogoogle.as_service_account.assert_called_once()
     
+    @pytest.mark.asyncio
     async def test_create_task_validation_errors(self):
         """Test task creation validation errors."""
         # Title too long
@@ -440,6 +448,7 @@ class TestAsyncTask:
         with pytest.raises(ValueError, match="Task notes cannot exceed"):
             await AsyncTask.create_task("Test", notes=long_notes)
     
+    @pytest.mark.asyncio
     async def test_update_task(self, mock_get_async_tasks_service, mock_async_tasks_context):
         """Test updating a task asynchronously."""
         # Setup mock async context manager
@@ -470,12 +479,14 @@ class TestAsyncTask:
         # Verify API was called correctly
         mock_aiogoogle.as_service_account.assert_called_once()
     
+    @pytest.mark.asyncio
     async def test_update_task_without_task_list_id(self):
         """Test updating task without task_list_id raises error."""
         task = AsyncTask(id="task_123", title="Test")
         with pytest.raises(ValueError, match="Task must have a task_list_id"):
             await task.update_task(title="Updated")
     
+    @pytest.mark.asyncio
     async def test_delete_task(self, mock_get_async_tasks_service, mock_async_tasks_context):
         """Test deleting a task asynchronously."""
         # Setup mock async context manager
@@ -493,12 +504,14 @@ class TestAsyncTask:
         # Verify API was called correctly
         mock_aiogoogle.as_service_account.assert_called_once()
     
+    @pytest.mark.asyncio
     async def test_delete_task_without_task_list_id(self):
         """Test deleting task without task_list_id raises error."""
         task = AsyncTask(id="task_123", title="Test")
         with pytest.raises(ValueError, match="Task must have a task_list_id"):
             await task.delete_task()
     
+    @pytest.mark.asyncio
     async def test_move_task(self, mock_get_async_tasks_service, mock_async_tasks_context):
         """Test moving a task asynchronously."""
         # Setup mock async context manager
@@ -523,6 +536,7 @@ class TestAsyncTask:
         # Verify API was called correctly
         mock_aiogoogle.as_service_account.assert_called_once()
     
+    @pytest.mark.asyncio
     async def test_mark_completed(self, mock_get_async_tasks_service, mock_async_tasks_context):
         """Test marking task as completed asynchronously."""
         # Setup mock async context manager
@@ -546,6 +560,7 @@ class TestAsyncTask:
         # Verify update was called
         mock_aiogoogle.as_service_account.assert_called_once()
     
+    @pytest.mark.asyncio
     async def test_mark_incomplete(self, mock_get_async_tasks_service, mock_async_tasks_context):
         """Test marking task as incomplete asynchronously."""
         # Setup mock async context manager

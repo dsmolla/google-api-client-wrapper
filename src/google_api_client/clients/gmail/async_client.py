@@ -3,6 +3,7 @@ from datetime import datetime
 from typing import Optional, List, Dict, Any, Union
 from ...auth.manager import auth_manager
 from ...utils.datetime import convert_datetime_to_readable, convert_datetime_to_local_timezone
+from ...utils.log_sanitizer import sanitize_for_logging
 from dataclasses import dataclass, field
 import logging
 import base64
@@ -169,24 +170,64 @@ class AsyncEmailAttachment:
         self.data = await self._get_attachment_data()
         return True
 
-    async def download_attachment(self, path: str) -> bool:
+    async def download_attachment(self, directory: str) -> bool:
         """
-        Downloads the attachment from the Gmail API and saves it to the specified path.
+        Downloads the attachment from the Gmail API and saves it into the specified directory with the original filename.
+        
+        Security: This method includes path traversal protection to prevent malicious filenames 
+        from accessing files outside the specified directory. Filenames containing path separators
+        or attempting directory traversal (e.g., '../../../etc/passwd') will be rejected.
+        
         Args:
-            path: The destination path of the attachment.
+            directory: The destination directory for the attachment.
 
         Returns:
             True if the attachment was successfully downloaded.
+            
+        Raises:
+            ValueError: If filename contains path traversal attempts or invalid path separators.
         """
-        logger.info("Downloading attachment %s[%s] from message %s to %s",
-                    self.attachment_id, self.filename, self.message_id, path)
+        if not os.path.exists(directory):
+            os.makedirs(directory)
+        if not os.path.isdir(directory):
+            raise ValueError(f"Provided path '{directory}' is not a directory.")
+
+        # Security: Prevent path traversal attacks
+        resolved_directory = os.path.realpath(directory)
+        file_path = os.path.join(directory, self.filename)
+        resolved_file_path = os.path.realpath(file_path)
+        
+        # Ensure the resolved file path is within the intended directory
+        # Use os.path.commonpath to check if they share the same root path
+        try:
+            common_path = os.path.commonpath([resolved_directory, resolved_file_path])
+            if common_path != resolved_directory:
+                raise ValueError("Security error: Path traversal detected in filename.")
+        except ValueError:
+            # os.path.commonpath raises ValueError if paths are on different drives (Windows)
+            raise ValueError("Security error: Path traversal detected in filename.")
+            
+        # Additional check: ensure no path separators in filename itself
+        if os.sep in self.filename or (os.altsep and os.altsep in self.filename):
+            raise ValueError("Security error: Path separators not allowed in filename.")
+        
+        sanitized = sanitize_for_logging(attachment_id=self.attachment_id, filename=self.filename, 
+                                       message_id=self.message_id)
+        logger.info("Downloading attachment %s from message %s to %s",
+                    sanitized.get('attachment_id', self.attachment_id), 
+                    sanitized.get('message_id', self.message_id), file_path)
         try:
             attachment_data = await self._get_attachment_data()
-            with open(path, 'wb') as f:
+            with open(file_path, 'wb') as f:
                 f.write(attachment_data)
             return True
+        except (OSError, IOError, PermissionError) as e:
+            logger.error("Failed to write attachment file. Check directory permissions.")
+            logger.debug("File write error: %s", str(e)[:100])
+            raise
         except Exception as e:
-            logger.error("Error downloading attachment: %s", e)
+            logger.error("Unexpected error downloading attachment.")
+            logger.debug("Download error: %s", str(e)[:100])
             raise
 
     async def _get_attachment_data(self) -> bytes:
@@ -210,8 +251,20 @@ class AsyncEmailAttachment:
                 
                 data = attachment['data']
                 return base64.urlsafe_b64decode(data + '===')
+            except HTTPError as e:
+                if e.res.status_code == 403:
+                    raise AsyncGmailPermissionError(f"Permission denied accessing attachment: {e}")
+                elif e.res.status_code == 404:
+                    raise AsyncEmailNotFoundError(f"Attachment not found: {e}")
+                else:
+                    raise AsyncGmailError(f"Gmail API error downloading attachment: {e}")
+            except (ValueError, KeyError) as e:
+                logger.error("Invalid attachment data format.")
+                logger.debug("Attachment data error: %s", str(e)[:100])
+                raise AsyncGmailError(f"Invalid attachment data: {e}")
             except Exception as e:
-                logger.error("Error downloading attachment: %s", e)
+                logger.error("Unexpected error downloading attachment.")
+                logger.debug("Attachment download error: %s", str(e)[:100])
                 raise
 
 @dataclass
@@ -721,8 +774,10 @@ class AsyncEmailMessage:
         if max_results and (max_results < 1 or max_results > MAX_RESULTS_LIMIT):
             raise ValueError(f"max_results must be between 1 and {MAX_RESULTS_LIMIT}")
 
+        sanitized = sanitize_for_logging(query=query, max_results=max_results, 
+                                        include_spam_trash=include_spam_trash, label_ids=label_ids)
         logger.info("Fetching messages with max_results=%s, query=%s, include_spam_trash=%s, label_ids=%s",
-                    max_results, query, include_spam_trash, label_ids)
+                    sanitized['max_results'], sanitized['query'], sanitized['include_spam_trash'], sanitized['label_ids'])
 
         async with async_gmail_service() as (aiogoogle, service):
             # Get list of message IDs
@@ -822,7 +877,8 @@ class AsyncEmailMessage:
         Returns:
             An AsyncEmailMessage object representing the message sent.
         """
-        logger.info("Sending message with subject=%s, to=%s", subject, to)
+        sanitized = sanitize_for_logging(subject=subject, to=to)
+        logger.info("Sending message with subject=%s, to=%s", sanitized['subject'], sanitized['to'])
 
         # Create message
         raw_message = cls._create_message(

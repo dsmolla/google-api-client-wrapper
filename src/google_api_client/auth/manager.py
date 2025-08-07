@@ -80,7 +80,8 @@ class AuthManager:
                 creds = Credentials.from_authorized_user_file(TOKEN_PATH, SCOPES)
                 logger.info("Loaded credentials from token file")
             except Exception as e:
-                logger.warning("Failed to load existing token: %s", e)
+                logger.warning("Failed to load existing token. Please check token file permissions and format.")
+                logger.debug("Token load error details: %s", str(e)[:100])
         
         # Refresh or obtain new credentials
         if not creds or not creds.valid:
@@ -89,7 +90,8 @@ class AuthManager:
                     logger.info("Refreshing expired credentials")
                     creds.refresh(Request())
                 except Exception as e:
-                    logger.error("Failed to refresh credentials: %s", e)
+                    logger.error("Failed to refresh credentials. Token may be invalid or expired.")
+                    logger.debug("Credential refresh error details: %s", str(e)[:100])
                     creds = None
             
             # If refresh failed or no credentials, start OAuth flow
@@ -112,7 +114,8 @@ class AuthManager:
                     token.write(creds.to_json())
                 logger.info("Credentials saved to token file")
             except Exception as e:
-                logger.error("Failed to save credentials: %s", e)
+                logger.error("Failed to save credentials. Check directory permissions.")
+                logger.debug("Credential save error details: %s", str(e)[:100])
         
         # Cache the credentials
         self._credentials = creds
@@ -171,8 +174,17 @@ class AuthManager:
             
             return ClientCreds(**client_creds_dict)
             
+        except (FileNotFoundError, PermissionError) as e:
+            logger.error("Failed to access client credentials file. Check file exists and permissions.")
+            logger.debug("Client credentials file error: %s", str(e)[:100])
+            raise
+        except (json.JSONDecodeError, KeyError, ValueError) as e:
+            logger.error("Invalid client credentials file format. Please check credentials.json structure.")
+            logger.debug("Client credentials format error: %s", str(e)[:100])
+            raise
         except Exception as e:
-            logger.error("Failed to load client credentials: %s", e)
+            logger.error("Unexpected error loading client credentials.")
+            logger.debug("Unexpected client credentials error: %s", str(e)[:100])
             raise
     
     def invalidate_cache(self):

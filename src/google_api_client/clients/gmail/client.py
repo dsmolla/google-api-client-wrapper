@@ -2,6 +2,7 @@ from datetime import datetime
 from typing import Optional, List, Self, Dict, Any
 from ...auth.manager import auth_manager
 from ...utils.datetime import convert_datetime_to_readable, convert_datetime_to_local_timezone
+from ...utils.log_sanitizer import sanitize_for_logging
 from dataclasses import dataclass, field
 import logging
 import base64
@@ -215,8 +216,13 @@ class EmailAttachment:
         try:
             with open(file_path, 'wb') as f:
                 f.write(self._get_attachment_data())
+        except (OSError, IOError, PermissionError) as e:
+            logger.error("Failed to write attachment file. Check directory permissions.")
+            logger.debug("File write error: %s", str(e)[:100])
+            raise
         except Exception as e:
-            logger.error("Error downloading attachment: %s", e)
+            logger.error("Unexpected error downloading attachment.")
+            logger.debug("Download error: %s", str(e)[:100])
             raise
 
         return True
@@ -240,8 +246,20 @@ class EmailAttachment:
 
                 data = attachment['data']
                 return base64.urlsafe_b64decode(data + '===')
+            except HttpError as e:
+                if e.resp.status == 403:
+                    raise GmailPermissionError(f"Permission denied accessing attachment: {e}")
+                elif e.resp.status == 404:
+                    raise EmailNotFoundError(f"Attachment not found: {e}")
+                else:
+                    raise GmailError(f"Gmail API error downloading attachment: {e}")
+            except (ValueError, KeyError) as e:
+                logger.error("Invalid attachment data format.")
+                logger.debug("Attachment data error: %s", str(e)[:100])
+                raise GmailError(f"Invalid attachment data: {e}")
             except Exception as e:
-                logger.error("Error downloading attachment: %s", e)
+                logger.error("Unexpected error downloading attachment.")
+                logger.debug("Attachment download error: %s", str(e)[:100])
                 raise
 
 
@@ -744,8 +762,10 @@ class EmailMessage:
         if max_results and (max_results < 1 or max_results > MAX_RESULTS_LIMIT):
             raise ValueError(f"max_results must be between 1 and {MAX_RESULTS_LIMIT}")
 
+        sanitized = sanitize_for_logging(query=query, max_results=max_results, 
+                                        include_spam_trash=include_spam_trash, label_ids=label_ids)
         logger.info("Fetching messages with max_results=%s, query=%s, include_spam_trash=%s, label_ids=%s",
-                    max_results, query, include_spam_trash, label_ids)
+                    sanitized['max_results'], sanitized['query'], sanitized['include_spam_trash'], sanitized['label_ids'])
 
         with gmail_service() as service:
             # Get list of message IDs
@@ -837,7 +857,8 @@ class EmailMessage:
         Returns:
             An EmailMessage object representing the message sent.
         """
-        logger.info("Sending message with subject=%s, to=%s", subject, to)
+        sanitized = sanitize_for_logging(subject=subject, to=to)
+        logger.info("Sending message with subject=%s, to=%s", sanitized['subject'], sanitized['to'])
 
         # Create message
         raw_message = cls._create_message(

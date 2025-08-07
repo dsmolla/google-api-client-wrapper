@@ -8,9 +8,6 @@ from src.google_api_client.clients.tasks.async_client import AsyncTask
 
 @pytest.mark.unit
 @pytest.mark.tasks
-@pytest.mark.asyncio
-
-
 class TestAsyncTaskQueryBuilder:
     """Test cases for the AsyncTaskQueryBuilder class."""
     
@@ -382,6 +379,7 @@ class TestAsyncTaskQueryBuilder:
         with pytest.raises(ValueError, match="Days must be positive"):
             builder.completed_last_days(-1)
     
+    @pytest.mark.asyncio
     async def test_execute(self):
         """Test executing the async query."""
         mock_task_class = Mock()
@@ -402,6 +400,7 @@ class TestAsyncTaskQueryBuilder:
             showCompleted=True
         )
     
+    @pytest.mark.asyncio
     async def test_execute_with_date_filters(self):
         """Test executing async query with date filters."""
         mock_task_class = Mock()
@@ -434,6 +433,7 @@ class TestAsyncTaskQueryBuilder:
         }
         mock_task_class._list_tasks_with_filters.assert_called_once_with(**expected_params)
     
+    @pytest.mark.asyncio
     async def test_count(self):
         """Test counting matching tasks."""
         mock_task_class = Mock()
@@ -445,6 +445,7 @@ class TestAsyncTaskQueryBuilder:
         
         assert result == 3
     
+    @pytest.mark.asyncio
     async def test_first(self):
         """Test getting first matching task."""
         mock_task_class = Mock()
@@ -461,6 +462,7 @@ class TestAsyncTaskQueryBuilder:
         call_args = mock_task_class._list_tasks_with_filters.call_args
         assert call_args[1]['maxResults'] == 1
     
+    @pytest.mark.asyncio
     async def test_first_no_results(self):
         """Test getting first task when no results."""
         mock_task_class = Mock()
@@ -471,6 +473,7 @@ class TestAsyncTaskQueryBuilder:
         
         assert result is None
     
+    @pytest.mark.asyncio
     async def test_exists_true(self):
         """Test exists when tasks match."""
         mock_task_class = Mock()
@@ -482,6 +485,7 @@ class TestAsyncTaskQueryBuilder:
         
         assert result is True
     
+    @pytest.mark.asyncio
     async def test_exists_false(self):
         """Test exists when no tasks match."""
         mock_task_class = Mock()
@@ -492,6 +496,7 @@ class TestAsyncTaskQueryBuilder:
         
         assert result is False
     
+    @pytest.mark.asyncio
     async def test_method_chaining(self):
         """Test that all methods support chaining."""
         mock_task_class = Mock()
