@@ -118,7 +118,7 @@ class EmailAttachment:
     attachment_id: str
     message_id: str
     data: Optional[bytes] = None
-    _service: "Resource" = field(default=None, init=False, repr=False)
+    _user_client: Optional["UserClient"] = field(default=None, init=False, repr=False)
 
     def __post_init__(self):
         if not self.filename:
@@ -128,15 +128,16 @@ class EmailAttachment:
         if not self.message_id:
             raise ValueError("Message ID cannot be empty")
 
-    def set_service(self, service: "Resource") -> None:
-        """Set the service for this attachment instance."""
-        self._service = service
+    def set_user_client(self, user_client):
+        """Set user context for this attachment."""
+        from ...user_client import UserClient
+        self._user_client = user_client
 
-    def _get_service(self) -> "Resource":
-        """Get the auth manager for this instance."""
-        if self._service is None:
-            raise ValueError("No service set. Use set_service() or pass service_instance to class methods.")
-        return self._service
+    def _get_user_client(self):
+        """Get the user client for this attachment."""
+        if self._user_client is None:
+            raise ValueError("Attachment must have user context. Use user.gmail methods to get attachments.")
+        return self._user_client
 
     def to_dict(self) -> dict:
         """
@@ -158,7 +159,9 @@ class EmailAttachment:
         Returns:
             True if the attachment was successfully loaded.
         """
-        self.data = self._get_attachment_data()
+        user_client = self._get_user_client()
+        service = user_client.get_gmail_service()
+        self.data = self._get_attachment_data(service)
         return True
 
     def download_attachment(self, directory: str) -> bool:
@@ -204,8 +207,10 @@ class EmailAttachment:
         logger.info("Downloading attachment %s[%s] from message %s to %s",
                     self.attachment_id, self.filename, self.message_id, file_path)
         try:
+            user_client = self._get_user_client()
+            service = user_client.get_gmail_service()
             with open(file_path, 'wb') as f:
-                f.write(self._get_attachment_data())
+                f.write(self._get_attachment_data(service))
         except (OSError, IOError, PermissionError) as e:
             logger.error("Failed to write attachment file. Check directory permissions.")
             logger.debug("File write error: %s", str(e)[:100])
@@ -217,16 +222,17 @@ class EmailAttachment:
 
         return True
 
-    def _get_attachment_data(self) -> bytes:
+    def _get_attachment_data(self, service: "Resource") -> bytes:
         """
         Retrieves the attachment in bytes from a message.
+
+        Args:
+            service: The Gmail service instance.
 
         Returns:
             The attachment data as bytes.
         """
         logger.info("Retrieving attachment %s from message %s", self.attachment_id, self.message_id)
-        
-        service = self._get_service()
         try:
             attachment = service.users().messages().attachments().get(
                 userId='me',
@@ -265,7 +271,7 @@ class Label:
     id: str
     name: str
     type: str
-    _service: "Resource" = field(default=None, init=False, repr=False)
+    _user_client: Optional["UserClient"] = field(default=None, init=False, repr=False)
 
     def __post_init__(self):
         if not self.id:
@@ -273,92 +279,16 @@ class Label:
         if not self.name:
             raise ValueError("Label name cannot be empty")
 
-    def set_service(self, service):
-        self._service = service
+    def set_user_client(self, user_client):
+        """Set user context for this label."""
+        from ...user_client import UserClient
+        self._user_client = user_client
 
-    def _get_service(self):
-        if self._service is None:
-            raise ValueError("No auth service set. Use set_service() or pass service_instance to class methods.")
-
-    @classmethod
-    def list_labels(cls, service: "Resource") -> List["Label"]:
-        """
-        Fetches a list of labels from Gmail.
-
-        Args:
-            service: The Gmail API service instance.
-
-        Returns:
-            A list of Label objects representing the labels.
-        """
-        logger.info("Fetching labels from Gmail")
-
-        try:
-            labels_response = service.users().labels().list(userId='me').execute()
-            labels = labels_response.get('labels', [])
-            logger.info("Found %d labels", len(labels))
-
-            labels_list = []
-            for label in labels:
-                new_label = Label(id=label.get('id'), name=label.get('name'), type=label.get('type'))
-                new_label.set_service(service)
-                labels_list.append(new_label)
-
-            return labels_list
-        except Exception as e:
-            logger.error("Failed to fetch labels: %s", e)
-            raise
-
-    @classmethod
-    def create_label(cls, name: str, service: "Resource") -> "Label":
-        """
-        Creates a new label in Gmail.
-        Args:
-            name: The name of the label to create.
-            service:
-
-        Returns:
-            A Label object representing the created label including its ID, name, and type.
-        """
-        logger.info("Creating label with name: %s", name)
-        
-
-        try:
-            label = service.users().labels().create(
-                userId='me',
-                body={'name': name, 'type': 'user'}
-            ).execute()
-            new_label = Label(id=label.get('id'), name=label.get('name'), type=label.get('type'))
-            new_label.set_service(service)
-            return new_label
-
-        except Exception as e:
-            logger.error("Error creating label: %s", e)
-            raise
-
-    @classmethod
-    def get_label(cls, label_id: str, service: "Resource") -> "Label":
-        """
-        Retrieves a specific label by its ID.
-        Args:
-            label_id: The unique identifier of the label to retrieve.
-            service:
-
-        Returns:
-            A Label object representing the label including its ID, name, and type.
-        """
-        logger.info("Retrieving label with ID: %s", label_id)
-
-        try:
-            label = service.users().labels().get(userId='me', id=label_id).execute()
-            return cls(
-                id=label.get('id'),
-                name=label.get('name'),
-                type=label.get('type')
-            )
-        except Exception as e:
-            logger.error("Error retrieving label: %s", e)
-            raise
+    def _get_user_client(self):
+        """Get the user client for this label."""
+        if self._user_client is None:
+            raise ValueError("Label must have user context. Use user.gmail methods to get labels.")
+        return self._user_client
 
     def delete_label(self) -> bool:
         """
@@ -368,15 +298,10 @@ class Label:
             True if the label was successfully deleted, False otherwise.
         """
         logger.info("Deleting label with ID: %s", self.id)
-        
-        service = self._get_service()
-        try:
-            service.users().labels().delete(userId='me', id=self.id).execute()
-            logger.info("Label deleted successfully")
-            return True
-        except Exception as e:
-            logger.error("Error deleting label: %s", e)
-            return False
+        user_client = self._get_user_client()
+        # This will be implemented by the service layer
+        # For now, provide a user context method
+        return user_client.gmail._delete_label(self.id)
 
     def update_label(self, new_name: str) -> "Label":
         """
@@ -388,19 +313,12 @@ class Label:
             The updated Label object.
         """
         logger.info("Updating label %s to new name: %s", self.id, new_name)
-        
-        service = self._get_service()
-        try:
-            updated_label = service.users().labels().patch(
-                userId='me',
-                id=self.id,
-                body={'name': new_name}
-            ).execute()
-            self.name = updated_label.get('name')
-            return self
-        except Exception as e:
-            logger.error("Error updating label: %s", e)
-            raise
+        user_client = self._get_user_client()
+        # This will be implemented by the service layer
+        # For now, provide a user context method
+        updated_label = user_client.gmail._update_label(self.id, new_name)
+        self.name = updated_label.name
+        return self
 
     def __repr__(self):
         return f"Label(id={self.id}, name={self.name}, type={self.type})"
@@ -446,20 +364,26 @@ class EmailMessage:
     is_starred: bool = False
     is_important: bool = False
     snippet: Optional[str] = None
-    _service: "Resource" = None
+    _user_client: Optional["UserClient"] = field(default=None, init=False, repr=False)
+
+    def set_user_client(self, user_client):
+        """Set user context for this message and nested objects."""
+        from ...user_client import UserClient
+        self._user_client = user_client
+        # Set context for attachments
+        for attachment in self.attachments:
+            attachment.set_user_client(user_client)
 
     def __post_init__(self):
         self._validate_text_field(self.subject, MAX_SUBJECT_LENGTH, "subject")
         self._validate_text_field(self.body_text, MAX_BODY_LENGTH, "body_text")
         self._validate_text_field(self.body_html, MAX_BODY_LENGTH, "body_html")
 
-    def set_service(self, service: "Resource"):
-        self._service = service
-
-    def _get_service(self) -> "Resource":
-        if self._service is None:
-            raise ValueError("No service set. Use set_service()")
-        return self._service
+    def _get_user_client(self):
+        """Get the user client for this message."""
+        if self._user_client is None:
+            raise ValueError("Email message must have user context. Use user.gmail methods to get emails.")
+        return self._user_client
 
     @staticmethod
     def _validate_text_field(value: Optional[str], max_length: int, field_name: str) -> None:
@@ -527,7 +451,6 @@ class EmailMessage:
                             attachment_id=part['body']['attachmentId'],
                             message_id=message_id
                         )
-                        attachment.set_service(service)
                         attachments.append(attachment)
                     except ValueError as e:
                         logger.warning("Skipping invalid attachment: %s", e)
@@ -624,9 +547,6 @@ class EmailMessage:
             snippet=html.unescape(gmail_message.get('snippet')).strip(),
             reply_to_id=headers.get('message-id')
         )
-        
-        # Set the auth manager
-        email_message.set_service(service)
             
         return email_message
 
@@ -734,223 +654,11 @@ class EmailMessage:
 
         return raw_message
 
-    @classmethod
-    def query(cls, service: "Resource") -> "EmailQueryBuilder":
-        """
-        Create a new EmailQueryBuilder for building complex email queries with a fluent API.
-        Args:
-            service: The gmail service instance.
 
-        Returns:
-            EmailQueryBuilder instance for method chaining
-            
-        Example:
-            emails = (EmailMessage.query()
-                .limit(50)
-                .from_sender("sender@example.com")
-                .search("meeting")
-                .with_attachments()
-                .execute())
-        """
-        from .query_builder import EmailQueryBuilder
-        return EmailQueryBuilder(cls, service)
 
-    @classmethod
-    def list_emails(
-            cls,
-            service: "Resource",
-            max_results: Optional[int] = DEFAULT_MAX_RESULTS,
-            query: Optional[str] = None,
-            include_spam_trash: bool = False,
-            label_ids: Optional[List[str]] = None
-    ) -> List[Self]:
-        """
-        Fetches a list of messages from Gmail with optional filtering.
 
-        Args:
-            service: The gmail service instance.
-            max_results: Maximum number of messages to retrieve. Defaults to 30.
-            query: Gmail search query string (same syntax as Gmail search).
-            include_spam_trash: Whether to include messages from spam and trash.
-            label_ids: List of label IDs to filter by.
 
-        Returns:
-            A list of EmailMessage objects representing the messages found.
-            If no messages are found, an empty list is returned.
-        """
-        # Input validation
-        if max_results and (max_results < 1 or max_results > MAX_RESULTS_LIMIT):
-            raise ValueError(f"max_results must be between 1 and {MAX_RESULTS_LIMIT}")
 
-        sanitized = sanitize_for_logging(query=query, max_results=max_results, 
-                                        include_spam_trash=include_spam_trash, label_ids=label_ids)
-        logger.info("Fetching messages with max_results=%s, query=%s, include_spam_trash=%s, label_ids=%s",
-                    sanitized['max_results'], sanitized['query'], sanitized['include_spam_trash'], sanitized['label_ids'])
-
-        # Get list of message IDs
-        request_params = {
-            'userId': 'me',
-            'maxResults': max_results,
-            'includeSpamTrash': include_spam_trash
-        }
-
-        if query:
-            request_params['q'] = query
-        if label_ids:
-            request_params['labelIds'] = label_ids
-
-        try:
-            result = service.users().messages().list(**request_params).execute()
-            messages = result.get('messages', [])
-
-            logger.info("Found %d message IDs", len(messages))
-
-            # Fetch full message details
-            email_messages = []
-            for message in messages:
-                try:
-                    email_messages.append(cls.get_email(message['id'], service))
-                except Exception as e:
-                    logger.warning("Failed to fetch message: %s", e)
-
-            logger.info("Successfully fetched %d complete messages", len(email_messages))
-            return email_messages
-
-        except Exception as e:
-            logger.error("An error occurred while fetching messages: %s", e)
-            raise
-
-    @classmethod
-    def get_email(cls, message_id: str, service: "Resource") -> "EmailMessage":
-        """
-        Retrieves a specific message from Gmail using its unique identifier.
-
-        Args:
-            message_id: The unique identifier of the message to be retrieved.
-            service: The gmail service instance.
-
-        Returns:
-            An EmailMessage object representing the message with the specified ID.
-        """
-        logger.info("Retrieving message with ID: %s", message_id)
-
-        try:
-            gmail_message = service.users().messages().get(
-                userId='me',
-                id=message_id,
-                format='full'
-            ).execute()
-            logger.info("Message retrieved successfully")
-            return cls._from_gmail_message(gmail_message, service)
-        except Exception as e:
-            logger.error("Error retrieving message: %s", e)
-            raise
-
-    @classmethod
-    def send_email(
-            cls,
-            service: "Resource",
-            to: List[str],
-            subject: Optional[str] = None,
-            body_text: Optional[str] = None,
-            body_html: Optional[str] = None,
-            cc: Optional[List[str]] = None,
-            bcc: Optional[List[str]] = None,
-            attachments: Optional[List[str]] = None,
-            reply_to_message_id: Optional[str] = None,
-            thread_id: Optional[str] = None
-    ) -> Self:
-        """
-        Sends a new email message.
-
-        Args:
-            service: The gmail service instance.
-            to: List of recipient email addresses.
-            subject: The subject line of the email.
-            body_text: Plain text body of the email (optional).
-            body_html: HTML body of the email (optional).
-            cc: List of CC recipient email addresses (optional).
-            bcc: List of BCC recipient email addresses (optional).
-            attachments: List of file paths to attach (optional).
-            reply_to_message_id: ID of message this is replying to (optional).
-            thread_id: ID of the thread to which this message belongs (optional).
-
-        Returns:
-            An EmailMessage object representing the message sent.
-        """
-        sanitized = sanitize_for_logging(subject=subject, to=to)
-        logger.info("Sending message with subject=%s, to=%s", sanitized['subject'], sanitized['to'])
-
-        # Create message
-        raw_message = cls._create_message(
-            to=to,
-            subject=subject,
-            body_text=body_text,
-            body_html=body_html,
-            cc=cc,
-            bcc=bcc,
-            attachments=attachments,
-            reply_to_message_id=reply_to_message_id
-        )
-
-        try:
-            send_result = service.users().messages().send(
-                userId='me',
-                body={'raw': raw_message, 'threadId': thread_id}
-            ).execute()
-
-            logger.info("Message sent successfully with ID: %s", send_result.get('id'))
-            return cls.get_email(send_result['id'], service)
-
-        except Exception as e:
-            logger.error("Error sending message: %s", e)
-            raise
-
-    @classmethod
-    def batch_get_emails(cls, service: "Resource", message_ids: List[str]) -> List["EmailMessage"]:
-        """
-        Retrieves multiple emails.
-        
-        Args:
-            service: The gmail service instance.
-            message_ids: List of message IDs to retrieve
-            
-        Returns:
-            List of EmailMessage objects
-        """
-        logger.info("Batch retrieving %d messages", len(message_ids))
-        
-        email_messages = []
-        for message_id in message_ids:
-            try:
-                email_messages.append(cls.get_email(message_id, service))
-            except Exception as e:
-                logger.warning("Failed to fetch message %s: %s", message_id, e)
-                
-        return email_messages
-
-    @classmethod
-    def batch_send_emails(cls, service: "Resource", email_data_list: List[Dict[str, Any]]) -> List["EmailMessage"]:
-        """
-        Sends multiple emails.
-        
-        Args:
-            service: The gmail service instance.
-            email_data_list: List of dictionaries containing email parameters
-            
-        Returns:
-            List of sent EmailMessage objects
-        """
-        logger.info("Batch sending %d emails", len(email_data_list))
-        
-        sent_messages = []
-        for email_data in email_data_list:
-            try:
-                sent_messages.append(cls.send_email(service, **email_data))
-            except Exception as e:
-                logger.warning("Failed to send email: %s", e)
-                
-        return sent_messages
 
     def reply(
             self,
