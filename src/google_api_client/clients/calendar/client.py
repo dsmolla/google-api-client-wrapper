@@ -1,12 +1,13 @@
 from datetime import datetime, date, time, timedelta
-from typing import Optional, List, Self, Union
-from ...auth.manager import auth_manager
+from typing import Optional, List, Self, Union, TYPE_CHECKING
 from ...utils.datetime import convert_datetime_to_iso, convert_datetime_to_readable, current_datetime_local_timezone, today_start, days_from_today
 from dataclasses import dataclass, field
 import logging
 import re
 from googleapiclient.errors import HttpError
-from contextlib import contextmanager
+
+if TYPE_CHECKING:
+    from googleapiclient.discovery import Resource
 
 logger = logging.getLogger(__name__)
 
@@ -19,38 +20,8 @@ MAX_QUERY_LENGTH = 500
 DEFAULT_MAX_RESULTS = 100
 DEFAULT_DAYS_AHEAD = 7
 
-# Custom Exception Classes
-class CalendarError(Exception):
-    """Base exception for calendar operations."""
-    pass
-
-class CalendarPermissionError(CalendarError):
-    """Raised when the user lacks permission for a calendar operation."""
-    pass
-
-class CalendarNotFoundError(CalendarError):
-    """Raised when a calendar or event is not found."""
-    pass
-
-@contextmanager
-def calendar_service():
-    """Context manager for calendar service connections with error handling."""
-    service = None
-    try:
-        service = auth_manager.get_calendar_service()
-        yield service
-    except HttpError as e:
-        if e.resp.status == 403:
-            raise CalendarPermissionError(f"Permission denied: {e}")
-        elif e.resp.status == 404:
-            raise CalendarNotFoundError(f"Calendar or event not found: {e}")
-        else:
-            raise CalendarError(f"Calendar API error: {e}")
-    except Exception as e:
-        raise CalendarError(f"Unexpected calendar service error: {e}")
-    finally:
-        # Clean up if needed (service doesn't require explicit cleanup)
-        pass
+# Import exceptions from centralized location
+from ...exceptions.calendar import CalendarError, CalendarPermissionError, CalendarNotFoundError
 
 @dataclass
 class Attendee:
@@ -206,15 +177,18 @@ class CalendarEvent:
         return event_dict
 
     @classmethod
-    def query(cls) -> "EventQueryBuilder":
+    def query(cls, service: "Resource") -> "EventQueryBuilder":
         """
         Create a new EventQueryBuilder for building complex event queries with a fluent API.
+        
+        Args:
+            service: The calendar service instance.
         
         Returns:
             EventQueryBuilder instance for method chaining
             
         Example:
-            events = (CalendarEvent.query()
+            events = (CalendarEvent.query(service)
                 .limit(50)
                 .in_date_range(start_date, end_date)
                 .search("meeting")
@@ -222,11 +196,12 @@ class CalendarEvent:
                 .execute())
         """
         from .query_builder import EventQueryBuilder
-        return EventQueryBuilder(cls)
+        return EventQueryBuilder(cls, service)
 
     @classmethod
     def list_events(
         cls,
+        service: "Resource",
         number_of_results: Optional[int] = DEFAULT_MAX_RESULTS,
         start: Optional[datetime] = None,
         end: Optional[datetime] = None,
@@ -235,6 +210,7 @@ class CalendarEvent:
     ) -> List[Self]:
         """Fetches a list of events from Google Calendar within the specified date range.
         Args:
+            service: The calendar service instance.
             number_of_results: Max number of events to retrieve. Defaults to 100. Max allowed: 2500.
             start: Start date and time as a datetime object. Defaults to the start of the current day.
             end: End date and time as a datetime object. Defaults to 7 days from the start date.
@@ -265,7 +241,7 @@ class CalendarEvent:
             
         start_iso, end_iso = convert_datetime_to_iso(start), convert_datetime_to_iso(end)
         
-        with calendar_service() as service:
+        try:
             request_params = {
                 "calendarId": calendar_id,
                 "timeMin": start_iso,
@@ -290,26 +266,46 @@ class CalendarEvent:
                     logger.warning("Skipping invalid event: %s", e)
                     
             return calendar_events
+        except HttpError as e:
+            if e.resp.status == 403:
+                raise CalendarPermissionError(f"Permission denied: {e}")
+            elif e.resp.status == 404:
+                raise CalendarNotFoundError(f"Calendar or event not found: {e}")
+            else:
+                raise CalendarError(f"Calendar API error: {e}")
+        except Exception as e:
+            raise CalendarError(f"Unexpected calendar service error: {e}")
 
     @classmethod
-    def get_event(cls, event_id: str) -> "CalendarEvent":
+    def get_event(cls, service: "Resource", event_id: str) -> "CalendarEvent":
         """
         Retrieves a specific event from the user's Google Calendar using its unique identifier.
         Args:
+            service: The calendar service instance.
             event_id: The unique identifier of the event to be retrieved.
         Returns:
             A CalendarEvent object representing the event with the specified ID.
         """
         logger.info("Retrieving event with ID: %s", event_id)
         
-        with calendar_service() as service:
+        try:
             google_event = service.events().get(calendarId="primary", eventId=event_id).execute()
             logger.info("Event retrieved successfully")
             return cls._from_google_event(google_event)
+        except HttpError as e:
+            if e.resp.status == 403:
+                raise CalendarPermissionError(f"Permission denied: {e}")
+            elif e.resp.status == 404:
+                raise CalendarNotFoundError(f"Calendar or event not found: {e}")
+            else:
+                raise CalendarError(f"Calendar API error: {e}")
+        except Exception as e:
+            raise CalendarError(f"Unexpected calendar service error: {e}")
 
     @classmethod
     def create_event(
         cls,
+        service: "Resource",
         start: datetime,
         end: datetime,
         summary: Optional[str] = None,
@@ -321,6 +317,7 @@ class CalendarEvent:
         """
         Creates a new event in the user's primary Google Calendar and returns a CalendarEvent object.
         Args:
+            service: The calendar service instance.
             start: The start date and time of the event, as a datetime object.
             end: The end date and time of the event, as a datetime object.
             summary: A short description or title for the event (optional).
@@ -356,34 +353,55 @@ class CalendarEvent:
         if recurrence:
             event["recurrence"] = recurrence
             
-        with calendar_service() as service:
+        try:
             event = service.events().insert(calendarId="primary", body=event).execute()
             logger.info("Event created successfully with ID: %s", event.get("id"))
             return cls._from_google_event(event)
+        except HttpError as e:
+            if e.resp.status == 403:
+                raise CalendarPermissionError(f"Permission denied: {e}")
+            elif e.resp.status == 404:
+                raise CalendarNotFoundError(f"Calendar or event not found: {e}")
+            else:
+                raise CalendarError(f"Calendar API error: {e}")
+        except Exception as e:
+            raise CalendarError(f"Unexpected calendar service error: {e}")
 
-    def sync_changes(self) -> None:
+    def sync_changes(self, service: "Resource") -> None:
         """
         Updates this event in the user's Google Calendar with new details.
+        Args:
+            service: The calendar service instance.
         Raises:
             CalendarError: If the event update fails.
         """
         logger.info("Updating event with ID: %s", self.id)
         
-        with calendar_service() as service:
+        try:
             updated_event = service.events().update(calendarId="primary", eventId=self.id, body=self.to_dict()).execute()
             logger.info("Event updated successfully")
+        except HttpError as e:
+            if e.resp.status == 403:
+                raise CalendarPermissionError(f"Permission denied: {e}")
+            elif e.resp.status == 404:
+                raise CalendarNotFoundError(f"Calendar or event not found: {e}")
+            else:
+                raise CalendarError(f"Calendar API error: {e}")
+        except Exception as e:
+            raise CalendarError(f"Unexpected calendar service error: {e}")
 
-    def delete_event(self, delete_all_recurrence: bool = False) -> None:
+    def delete_event(self, service: "Resource", delete_all_recurrence: bool = False) -> None:
         """
         Deletes this event from the user's Google Calendar. Can delete a single event or all in a recurrence series.
         Args:
+            service: The calendar service instance.
             delete_all_recurrence: If True, deletes all events in the recurrence series.
         Raises:
             CalendarError: If the event deletion fails.
         """
         logger.info("Deleting event with ID: %s, delete_all_recurrence=%s", self.id, delete_all_recurrence)
         
-        with calendar_service() as service:
+        try:
             if delete_all_recurrence:
                 event = service.events().get(calendarId="primary", eventId=self.id).execute()
                 recurring_event_id = event.get("recurringEventId")
@@ -393,11 +411,21 @@ class CalendarEvent:
                     return
             service.events().delete(calendarId="primary", eventId=self.id).execute()
             logger.info("Event deleted successfully")
+        except HttpError as e:
+            if e.resp.status == 403:
+                raise CalendarPermissionError(f"Permission denied: {e}")
+            elif e.resp.status == 404:
+                raise CalendarNotFoundError(f"Calendar or event not found: {e}")
+            else:
+                raise CalendarError(f"Calendar API error: {e}")
+        except Exception as e:
+            raise CalendarError(f"Unexpected calendar service error: {e}")
 
-    def add_attendee(self, email: str) -> None:
+    def add_attendee(self, service: "Resource", email: str) -> None:
         """
         Adds an attendee to the event if they are not already in the list.
         Args:
+            service: The calendar service instance.
             email: The email address of the attendee to be added.
         Raises:
             CalendarError: If the attendee addition fails.
@@ -405,23 +433,25 @@ class CalendarEvent:
         logger.info("Adding attendee with email: %s to event ID: %s", email, self.id)
         if not self.has_attendee(email):
             self.attendees.append(Attendee(email=email))
-            self.sync_changes()
+            self.sync_changes(service)
 
-    def remove_attendee(self, email: str) -> None:
+    def remove_attendee(self, service: "Resource", email: str) -> None:
         """
         Removes an attendee from the event by their email address.
         Args:
+            service: The calendar service instance.
             email: The email address of the attendee to be removed.
         Raises:
             CalendarError: If the attendee removal fails.
         """
         self.attendees = [attendee for attendee in self.attendees if attendee.email != email]
-        self.sync_changes()
+        self.sync_changes(service)
 
-    def update_summary(self, summary: str) -> None:
+    def update_summary(self, service: "Resource", summary: str) -> None:
         """
         Updates the summary of the event.
         Args:
+            service: The calendar service instance.
             summary: The new summary for the event.
         Raises:
             CalendarError: If the summary update fails.
@@ -429,12 +459,13 @@ class CalendarEvent:
         logger.info("Updating summary for event ID: %s to %s", self.id, summary)
         self._validate_text_field(summary, MAX_SUMMARY_LENGTH, "summary")
         self.summary = summary
-        self.sync_changes()
+        self.sync_changes(service)
 
-    def update_description(self, description: str) -> None:
+    def update_description(self, service: "Resource", description: str) -> None:
         """
         Updates the description of the event.
         Args:
+            service: The calendar service instance.
             description: The new description for the event.
         Raises:
             CalendarError: If the description update fails.
@@ -442,12 +473,13 @@ class CalendarEvent:
         logger.info("Updating description for event ID: %s", self.id)
         self._validate_text_field(description, MAX_DESCRIPTION_LENGTH, "description")
         self.description = description
-        self.sync_changes()
+        self.sync_changes(service)
 
-    def update_location(self, location: str) -> None:
+    def update_location(self, service: "Resource", location: str) -> None:
         """
         Updates the location of the event.
         Args:
+            service: The calendar service instance.
             location: The new location for the event.
         Raises:
             CalendarError: If the location update fails.
@@ -455,12 +487,13 @@ class CalendarEvent:
         logger.info("Updating location for event ID: %s to %s", self.id, location)
         self._validate_text_field(location, MAX_LOCATION_LENGTH, "location")
         self.location = location
-        self.sync_changes()
+        self.sync_changes(service)
 
-    def update_start_time(self, start: datetime) -> None:
+    def update_start_time(self, service: "Resource", start: datetime) -> None:
         """
         Updates the start time of the event.
         Args:
+            service: The calendar service instance.
             start: The new start time as a datetime object.
         Raises:
             CalendarError: If the start time update fails.
@@ -468,12 +501,13 @@ class CalendarEvent:
         logger.info("Updating start time for event ID: %s to %s", self.id, start)
         self._validate_datetime_range(start, self.end)
         self.start = start
-        self.sync_changes()
+        self.sync_changes(service)
 
-    def update_end_time(self, end: datetime) -> None:
+    def update_end_time(self, service: "Resource", end: datetime) -> None:
         """
         Updates the end time of the event.
         Args:
+            service: The calendar service instance.
             end: The new end time as a datetime object.
         Raises:
             CalendarError: If the end time update fails.
@@ -481,19 +515,20 @@ class CalendarEvent:
         logger.info("Updating end time for event ID: %s to %s", self.id, end)
         self._validate_datetime_range(self.start, end)
         self.end = end
-        self.sync_changes()
+        self.sync_changes(service)
 
-    def update_recurrence(self, recurrence: List[str]) -> None:
+    def update_recurrence(self, service: "Resource", recurrence: List[str]) -> None:
         """
         Updates the recurrence rules for the event.
         Args:
+            service: The calendar service instance.
             recurrence: A list of strings defining the recurrence rules in RFC 5545 format.
         Raises:
             CalendarError: If the recurrence update fails.
         """
         logger.info("Updating recurrence for event ID: %s", self.id)
         self.recurrence = recurrence
-        self.sync_changes()
+        self.sync_changes(service)
 
     def duration(self) -> Optional[int]:
         if self.start and self.end:

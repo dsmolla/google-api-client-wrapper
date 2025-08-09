@@ -26,12 +26,13 @@ class EmailQueryBuilder:
             .execute())
     """
     
-    def __init__(self, email_message_class):
+    def __init__(self, email_message_class, service):
         self._email_message_class = email_message_class
         self._max_results: Optional[int] = DEFAULT_MAX_RESULTS
         self._query_parts: List[str] = []
         self._include_spam_trash: bool = False
         self._label_ids: List[str] = []
+        self._service = service
         
     def limit(self, count: int) -> "EmailQueryBuilder":
         """
@@ -332,6 +333,7 @@ class EmailQueryBuilder:
         logger.info("Executing email query: %s", query_string)
         
         return self._email_message_class.list_emails(
+            service=self._service,
             max_results=self._max_results,
             query=query_string,
             include_spam_trash=self._include_spam_trash,

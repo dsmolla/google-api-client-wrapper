@@ -14,3 +14,8 @@ class EventNotFoundError(CalendarError):
 class CalendarNotFoundError(CalendarError):
     """Raised when a calendar is not found."""
     pass
+
+
+class CalendarPermissionError(CalendarError):
+    """Raised when the user lacks permission for a calendar operation."""
+    pass

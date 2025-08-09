@@ -1,11 +1,12 @@
 from datetime import date, datetime, time
-from typing import Optional, List, Self
-from ...auth.manager import auth_manager
+from typing import Optional, List, Self, TYPE_CHECKING
 from ...utils.datetime import convert_datetime_to_readable, convert_datetime_to_local_timezone, convert_datetime_to_iso
 from dataclasses import dataclass, field
 import logging
 from googleapiclient.errors import HttpError
-from contextlib import contextmanager
+
+if TYPE_CHECKING:
+    from googleapiclient.discovery import Resource
 
 logger = logging.getLogger(__name__)
 
@@ -15,38 +16,8 @@ MAX_TITLE_LENGTH = 1024
 MAX_NOTES_LENGTH = 8192
 DEFAULT_MAX_RESULTS = 100
 
-# Custom Exception Classes
-class TasksError(Exception):
-    """Base exception for tasks operations."""
-    pass
-
-class TasksPermissionError(TasksError):
-    """Raised when the user lacks permission for a tasks operation."""
-    pass
-
-class TasksNotFoundError(TasksError):
-    """Raised when a task or task list is not found."""
-    pass
-
-@contextmanager
-def tasks_service():
-    """Context manager for tasks service connections with error handling."""
-    service = None
-    try:
-        service = auth_manager.get_tasks_service()
-        yield service
-    except HttpError as e:
-        if e.resp.status == 403:
-            raise TasksPermissionError(f"Permission denied: {e}")
-        elif e.resp.status == 404:
-            raise TasksNotFoundError(f"Task or task list not found: {e}")
-        else:
-            raise TasksError(f"Tasks API error: {e}")
-    except Exception as e:
-        raise TasksError(f"Unexpected tasks service error: {e}")
-    finally:
-        # Clean up if needed (service doesn't require explicit cleanup)
-        pass
+# Import exceptions from centralized location
+from ...exceptions.tasks import TasksError, TasksPermissionError, TasksNotFoundError
 
 
 @dataclass
@@ -99,57 +70,71 @@ class TaskList:
         return task_list_dict
 
     @classmethod
-    def list_task_lists(cls) -> List["TaskList"]:
+    def list_task_lists(cls, service: "Resource") -> List["TaskList"]:
         """
         Fetches a list of task lists from Google Tasks.
+        Args:
+            service: The tasks service instance.
         Returns:
             A list of TaskList objects representing the task lists found.
         """
         logger.info("Fetching task lists from Google Tasks")
         
-        with tasks_service() as service:
-            try:
-                result = service.tasklists().list().execute()
-                task_lists = result.get('items', [])
-                logger.info("Found %d task lists", len(task_lists))
-                
-                task_list_objects = []
-                for task_list in task_lists:
-                    try:
-                        task_list_objects.append(cls._from_google_tasklist(task_list))
-                    except Exception as e:
-                        logger.warning("Skipping invalid task list: %s", e)
-                
-                return task_list_objects
-            except Exception as e:
-                logger.error("Error fetching task lists: %s", e)
-                raise
+        try:
+            result = service.tasklists().list().execute()
+            task_lists = result.get('items', [])
+            logger.info("Found %d task lists", len(task_lists))
+            
+            task_list_objects = []
+            for task_list in task_lists:
+                try:
+                    task_list_objects.append(cls._from_google_tasklist(task_list))
+                except Exception as e:
+                    logger.warning("Skipping invalid task list: %s", e)
+            
+            return task_list_objects
+        except HttpError as e:
+            if e.resp.status == 403:
+                raise TasksPermissionError(f"Permission denied: {e}")
+            elif e.resp.status == 404:
+                raise TasksNotFoundError(f"Task or task list not found: {e}")
+            else:
+                raise TasksError(f"Tasks API error: {e}")
+        except Exception as e:
+            raise TasksError(f"Unexpected tasks service error: {e}")
 
     @classmethod
-    def get_task_list(cls, task_list_id: str) -> "TaskList":
+    def get_task_list(cls, service: "Resource", task_list_id: str) -> "TaskList":
         """
         Retrieves a specific task list by its ID.
         Args:
+            service: The tasks service instance.
             task_list_id: The unique identifier of the task list to retrieve.
         Returns:
             A TaskList object representing the task list.
         """
         logger.info("Retrieving task list with ID: %s", task_list_id)
         
-        with tasks_service() as service:
-            try:
-                google_tasklist = service.tasklists().get(tasklist=task_list_id).execute()
-                logger.info("Task list retrieved successfully")
-                return cls._from_google_tasklist(google_tasklist)
-            except Exception as e:
-                logger.error("Error retrieving task list: %s", e)
-                raise
+        try:
+            google_tasklist = service.tasklists().get(tasklist=task_list_id).execute()
+            logger.info("Task list retrieved successfully")
+            return cls._from_google_tasklist(google_tasklist)
+        except HttpError as e:
+            if e.resp.status == 403:
+                raise TasksPermissionError(f"Permission denied: {e}")
+            elif e.resp.status == 404:
+                raise TasksNotFoundError(f"Task or task list not found: {e}")
+            else:
+                raise TasksError(f"Tasks API error: {e}")
+        except Exception as e:
+            raise TasksError(f"Unexpected tasks service error: {e}")
 
     @classmethod
-    def create_task_list(cls, title: str) -> "TaskList":
+    def create_task_list(cls, service: "Resource", title: str) -> "TaskList":
         """
         Creates a new task list in Google Tasks.
         Args:
+            service: The tasks service instance.
             title: The title of the task list to create.
         Returns:
             A TaskList object representing the created task list.
@@ -159,20 +144,26 @@ class TaskList:
         
         logger.info("Creating task list with title: %s", title)
         
-        with tasks_service() as service:
-            try:
-                body = {'title': title}
-                google_tasklist = service.tasklists().insert(body=body).execute()
-                logger.info("Task list created successfully with ID: %s", google_tasklist.get('id'))
-                return cls._from_google_tasklist(google_tasklist)
-            except Exception as e:
-                logger.error("Error creating task list: %s", e)
-                raise
+        try:
+            body = {'title': title}
+            google_tasklist = service.tasklists().insert(body=body).execute()
+            logger.info("Task list created successfully with ID: %s", google_tasklist.get('id'))
+            return cls._from_google_tasklist(google_tasklist)
+        except HttpError as e:
+            if e.resp.status == 403:
+                raise TasksPermissionError(f"Permission denied: {e}")
+            elif e.resp.status == 404:
+                raise TasksNotFoundError(f"Task or task list not found: {e}")
+            else:
+                raise TasksError(f"Tasks API error: {e}")
+        except Exception as e:
+            raise TasksError(f"Unexpected tasks service error: {e}")
 
-    def update_task_list(self, title: str) -> "TaskList":
+    def update_task_list(self, service: "Resource", title: str) -> "TaskList":
         """
         Updates the title of this task list.
         Args:
+            service: The tasks service instance.
             title: The new title for the task list.
         Returns:
             The updated TaskList object.
@@ -184,39 +175,51 @@ class TaskList:
         
         logger.info("Updating task list %s to new title: %s", self.id, title)
         
-        with tasks_service() as service:
-            try:
-                body = {
-                    'id': self.id,  # Include the ID in the body as well
-                    'title': title
-                }
-                google_tasklist = service.tasklists().update(
-                    tasklist=self.id,
-                    body=body
-                ).execute()
-                self.title = google_tasklist.get('title')
-                logger.info("Task list updated successfully")
-                return self
-            except Exception as e:
-                logger.error("Error updating task list: %s", e)
-                raise
+        try:
+            body = {
+                'id': self.id,  # Include the ID in the body as well
+                'title': title
+            }
+            google_tasklist = service.tasklists().update(
+                tasklist=self.id,
+                body=body
+            ).execute()
+            self.title = google_tasklist.get('title')
+            logger.info("Task list updated successfully")
+            return self
+        except HttpError as e:
+            if e.resp.status == 403:
+                raise TasksPermissionError(f"Permission denied: {e}")
+            elif e.resp.status == 404:
+                raise TasksNotFoundError(f"Task or task list not found: {e}")
+            else:
+                raise TasksError(f"Tasks API error: {e}")
+        except Exception as e:
+            raise TasksError(f"Unexpected tasks service error: {e}")
 
-    def delete_task_list(self) -> bool:
+    def delete_task_list(self, service: "Resource") -> bool:
         """
         Deletes this task list.
+        Args:
+            service: The tasks service instance.
         Returns:
             True if the task list was successfully deleted, False otherwise.
         """
         logger.info("Deleting task list with ID: %s", self.id)
         
-        with tasks_service() as service:
-            try:
-                service.tasklists().delete(tasklist=self.id).execute()
-                logger.info("Task list deleted successfully")
-                return True
-            except Exception as e:
-                logger.error("Error deleting task list: %s", e)
-                return False
+        try:
+            service.tasklists().delete(tasklist=self.id).execute()
+            logger.info("Task list deleted successfully")
+            return True
+        except HttpError as e:
+            if e.resp.status == 403:
+                raise TasksPermissionError(f"Permission denied: {e}")
+            elif e.resp.status == 404:
+                raise TasksNotFoundError(f"Task or task list not found: {e}")
+            else:
+                raise TasksError(f"Tasks API error: {e}")
+        except Exception as e:
+            raise TasksError(f"Unexpected tasks service error: {e}")
 
     def __repr__(self):
         return f"TaskList(id={self.id!r}, title={self.title!r})"
@@ -313,15 +316,18 @@ class Task:
         return task_dict
 
     @classmethod
-    def query(cls) -> "TaskQueryBuilder":
+    def query(cls, service: "Resource") -> "TaskQueryBuilder":
         """
         Create a new TaskQueryBuilder for building complex task queries with a fluent API.
+        
+        Args:
+            service: The tasks service instance.
         
         Returns:
             TaskQueryBuilder instance for method chaining
             
         Example:
-            tasks = (Task.query()
+            tasks = (Task.query(service)
                 .limit(50)
                 .due_before(end_date)
                 .completed_after(start_date)
@@ -329,13 +335,14 @@ class Task:
                 .execute())
         """
         from .query_builder import TaskQueryBuilder
-        return TaskQueryBuilder(cls)
+        return TaskQueryBuilder(cls, service)
 
     @classmethod
-    def _list_tasks_with_filters(cls, **kwargs) -> List["Task"]:
+    def _list_tasks_with_filters(cls, service: "Resource", **kwargs) -> List["Task"]:
         """
         Internal method to fetch tasks with advanced filtering support for query builder.
         Args:
+            service: The tasks service instance.
             **kwargs: Request parameters including tasklist, maxResults, completedMin, etc.
         Returns:
             A list of Task objects representing the tasks found.
@@ -348,32 +355,38 @@ class Task:
 
         logger.info("Fetching tasks from task list with filters: %s", task_list_id)
         
-        with tasks_service() as service:
-            try:
-                # Filter out None values and prepare request params
-                request_params = {k: v for k, v in kwargs.items() if v is not None}
-                
-                result = service.tasks().list(**request_params).execute()
-                tasks = result.get('items', [])
-                logger.info("Found %d tasks", len(tasks))
-                
-                task_objects = []
-                for task in tasks:
-                    try:
-                        task_objects.append(cls._from_google_task(task, task_list_id))
-                    except Exception as e:
-                        logger.warning("Skipping invalid task: %s", e)
-                
-                return task_objects
-            except Exception as e:
-                logger.error("Error fetching tasks: %s", e)
-                raise
+        try:
+            # Filter out None values and prepare request params
+            request_params = {k: v for k, v in kwargs.items() if v is not None}
+            
+            result = service.tasks().list(**request_params).execute()
+            tasks = result.get('items', [])
+            logger.info("Found %d tasks", len(tasks))
+            
+            task_objects = []
+            for task in tasks:
+                try:
+                    task_objects.append(cls._from_google_task(task, task_list_id))
+                except Exception as e:
+                    logger.warning("Skipping invalid task: %s", e)
+            
+            return task_objects
+        except HttpError as e:
+            if e.resp.status == 403:
+                raise TasksPermissionError(f"Permission denied: {e}")
+            elif e.resp.status == 404:
+                raise TasksNotFoundError(f"Task or task list not found: {e}")
+            else:
+                raise TasksError(f"Tasks API error: {e}")
+        except Exception as e:
+            raise TasksError(f"Unexpected tasks service error: {e}")
 
     @classmethod
-    def list_tasks(cls, task_list_id: str='@default', max_results: Optional[int] = DEFAULT_MAX_RESULTS) -> List["Task"]:
+    def list_tasks(cls, service: "Resource", task_list_id: str='@default', max_results: Optional[int] = DEFAULT_MAX_RESULTS) -> List["Task"]:
         """
         Fetches a list of tasks from a specific task list.
         Args:
+            service: The tasks service instance.
             task_list_id: The ID of the task list to fetch tasks from.
             max_results: Maximum number of tasks to retrieve.
         Returns:
@@ -384,34 +397,40 @@ class Task:
 
         logger.info("Fetching tasks from task list: %s", task_list_id)
         
-        with tasks_service() as service:
-            try:
-                request_params = {
-                    'tasklist': task_list_id,
-                    'maxResults': max_results
-                }
-                
-                result = service.tasks().list(**request_params).execute()
-                tasks = result.get('items', [])
-                logger.info("Found %d tasks", len(tasks))
-                
-                task_objects = []
-                for task in tasks:
-                    try:
-                        task_objects.append(cls._from_google_task(task, task_list_id))
-                    except Exception as e:
-                        logger.warning("Skipping invalid task: %s", e)
-                
-                return task_objects
-            except Exception as e:
-                logger.error("Error fetching tasks: %s", e)
-                raise
+        try:
+            request_params = {
+                'tasklist': task_list_id,
+                'maxResults': max_results
+            }
+            
+            result = service.tasks().list(**request_params).execute()
+            tasks = result.get('items', [])
+            logger.info("Found %d tasks", len(tasks))
+            
+            task_objects = []
+            for task in tasks:
+                try:
+                    task_objects.append(cls._from_google_task(task, task_list_id))
+                except Exception as e:
+                    logger.warning("Skipping invalid task: %s", e)
+            
+            return task_objects
+        except HttpError as e:
+            if e.resp.status == 403:
+                raise TasksPermissionError(f"Permission denied: {e}")
+            elif e.resp.status == 404:
+                raise TasksNotFoundError(f"Task or task list not found: {e}")
+            else:
+                raise TasksError(f"Tasks API error: {e}")
+        except Exception as e:
+            raise TasksError(f"Unexpected tasks service error: {e}")
 
     @classmethod
-    def get_task(cls, task_list_id: str, task_id: str) -> "Task":
+    def get_task(cls, service: "Resource", task_list_id: str, task_id: str) -> "Task":
         """
         Retrieves a specific task by its ID.
         Args:
+            service: The tasks service instance.
             task_list_id: The ID of the task list containing the task.
             task_id: The unique identifier of the task to retrieve.
         Returns:
@@ -419,18 +438,24 @@ class Task:
         """
         logger.info("Retrieving task with ID: %s from list: %s", task_id, task_list_id)
         
-        with tasks_service() as service:
-            try:
-                google_task = service.tasks().get(tasklist=task_list_id, task=task_id).execute()
-                logger.info("Task retrieved successfully")
-                return cls._from_google_task(google_task, task_list_id)
-            except Exception as e:
-                logger.error("Error retrieving task: %s", e)
-                raise
+        try:
+            google_task = service.tasks().get(tasklist=task_list_id, task=task_id).execute()
+            logger.info("Task retrieved successfully")
+            return cls._from_google_task(google_task, task_list_id)
+        except HttpError as e:
+            if e.resp.status == 403:
+                raise TasksPermissionError(f"Permission denied: {e}")
+            elif e.resp.status == 404:
+                raise TasksNotFoundError(f"Task or task list not found: {e}")
+            else:
+                raise TasksError(f"Tasks API error: {e}")
+        except Exception as e:
+            raise TasksError(f"Unexpected tasks service error: {e}")
 
     @classmethod
     def create_task(
         cls,
+        service: "Resource",
         title: str,
         task_list_id: str = '@default',
         notes: Optional[str] = None,
@@ -440,6 +465,7 @@ class Task:
         """
         Creates a new task in the specified task list.
         Args:
+            service: The tasks service instance.
             task_list_id: The ID of the task list to create the task in.
             title: The title of the task.
             notes: Notes for the task (optional).
@@ -455,25 +481,31 @@ class Task:
         
         logger.info("Creating task with title: %s in list: %s", title, task_list_id)
         
-        with tasks_service() as service:
-            try:
-                body = {'title': title}
-                if notes:
-                    body['notes'] = notes
-                if due:
-                    body['due'] = datetime.combine(due, time.min).isoformat() + 'Z'
-                if parent:
-                    body['parent'] = parent
-                
-                google_task = service.tasks().insert(tasklist=task_list_id, body=body).execute()
-                logger.info("Task created successfully with ID: %s", google_task.get('id'))
-                return cls._from_google_task(google_task, task_list_id)
-            except Exception as e:
-                logger.error("Error creating task: %s", e)
-                raise
+        try:
+            body = {'title': title}
+            if notes:
+                body['notes'] = notes
+            if due:
+                body['due'] = datetime.combine(due, time.min).isoformat() + 'Z'
+            if parent:
+                body['parent'] = parent
+            
+            google_task = service.tasks().insert(tasklist=task_list_id, body=body).execute()
+            logger.info("Task created successfully with ID: %s", google_task.get('id'))
+            return cls._from_google_task(google_task, task_list_id)
+        except HttpError as e:
+            if e.resp.status == 403:
+                raise TasksPermissionError(f"Permission denied: {e}")
+            elif e.resp.status == 404:
+                raise TasksNotFoundError(f"Task or task list not found: {e}")
+            else:
+                raise TasksError(f"Tasks API error: {e}")
+        except Exception as e:
+            raise TasksError(f"Unexpected tasks service error: {e}")
 
     def update_task(
             self,
+            service: "Resource",
             title: str=None,
             notes: str=None,
             status: str=None,
@@ -483,6 +515,7 @@ class Task:
         """
         Updates this task in Google Tasks.
         Args:
+            service: The tasks service instance.
             title: The title of the task (optional).
             notes: Notes for the task (optional).
             status: The status of the task (optional).
@@ -497,38 +530,45 @@ class Task:
         
         logger.info("Updating task with ID: %s", self.id)
         
-        with tasks_service() as service:
-            try:
-                body = self.to_dict()
-                if title:
-                    body['title'] = title
-                if notes:
-                    body['notes'] = notes
-                if status:
-                    body['status'] = status
-                if completed:
-                    body['completed'] = datetime.combine(completed, time.min).isoformat() + 'Z'
-                if due:
-                    body['due'] = datetime.combine(due, time.min).isoformat() + 'Z'
+        try:
+            body = self.to_dict()
+            if title:
+                body['title'] = title
+            if notes:
+                body['notes'] = notes
+            if status:
+                body['status'] = status
+            if completed:
+                body['completed'] = datetime.combine(completed, time.min).isoformat() + 'Z'
+            if due:
+                body['due'] = datetime.combine(due, time.min).isoformat() + 'Z'
 
-                google_task = service.tasks().update(
-                    tasklist=self.task_list_id,
-                    task=self.id,
-                    body=body
-                ).execute()
+            google_task = service.tasks().update(
+                tasklist=self.task_list_id,
+                task=self.id,
+                body=body
+            ).execute()
 
-                logger.info("Task updated successfully")
-                # Update the current object with the response
-                updated_task = self._from_google_task(google_task, self.task_list_id)
-                self.__dict__.update(updated_task.__dict__)
-                return self
-            except Exception as e:
-                logger.error("Error updating task: %s", e)
-                raise
+            logger.info("Task updated successfully")
+            # Update the current object with the response
+            updated_task = self._from_google_task(google_task, self.task_list_id)
+            self.__dict__.update(updated_task.__dict__)
+            return self
+        except HttpError as e:
+            if e.resp.status == 403:
+                raise TasksPermissionError(f"Permission denied: {e}")
+            elif e.resp.status == 404:
+                raise TasksNotFoundError(f"Task or task list not found: {e}")
+            else:
+                raise TasksError(f"Tasks API error: {e}")
+        except Exception as e:
+            raise TasksError(f"Unexpected tasks service error: {e}")
 
-    def delete_task(self) -> bool:
+    def delete_task(self, service: "Resource") -> bool:
         """
         Deletes this task.
+        Args:
+            service: The tasks service instance.
         Returns:
             True if the task was successfully deleted, False otherwise.
         """
@@ -537,19 +577,25 @@ class Task:
         
         logger.info("Deleting task with ID: %s", self.id)
         
-        with tasks_service() as service:
-            try:
-                service.tasks().delete(tasklist=self.task_list_id, task=self.id).execute()
-                logger.info("Task deleted successfully")
-                return True
-            except Exception as e:
-                logger.error("Error deleting task: %s", e)
-                return False
+        try:
+            service.tasks().delete(tasklist=self.task_list_id, task=self.id).execute()
+            logger.info("Task deleted successfully")
+            return True
+        except HttpError as e:
+            if e.resp.status == 403:
+                raise TasksPermissionError(f"Permission denied: {e}")
+            elif e.resp.status == 404:
+                raise TasksNotFoundError(f"Task or task list not found: {e}")
+            else:
+                raise TasksError(f"Tasks API error: {e}")
+        except Exception as e:
+            raise TasksError(f"Unexpected tasks service error: {e}")
 
-    def move_task(self, parent: Optional[str] = None, previous: Optional[str] = None) -> "Task":
+    def move_task(self, service: "Resource", parent: Optional[str] = None, previous: Optional[str] = None) -> "Task":
         """
         Moves this task to a different position in the task list.
         Args:
+            service: The tasks service instance.
             parent: Parent task ID (optional).
             previous: Previous sibling task ID (optional).
         Returns:
@@ -560,42 +606,51 @@ class Task:
         
         logger.info("Moving task with ID: %s", self.id)
         
-        with tasks_service() as service:
-            try:
-                request_params = {
-                    'tasklist': self.task_list_id,
-                    'task': self.id
-                }
-                if parent:
-                    request_params['parent'] = parent
-                if previous:
-                    request_params['previous'] = previous
-                
-                google_task = service.tasks().move(**request_params).execute()
-                logger.info("Task moved successfully")
-                # Update the current object with the response
-                updated_task = self._from_google_task(google_task, self.task_list_id)
-                self.__dict__.update(updated_task.__dict__)
-                return self
-            except Exception as e:
-                logger.error("Error moving task: %s", e)
-                raise
+        try:
+            request_params = {
+                'tasklist': self.task_list_id,
+                'task': self.id
+            }
+            if parent:
+                request_params['parent'] = parent
+            if previous:
+                request_params['previous'] = previous
+            
+            google_task = service.tasks().move(**request_params).execute()
+            logger.info("Task moved successfully")
+            # Update the current object with the response
+            updated_task = self._from_google_task(google_task, self.task_list_id)
+            self.__dict__.update(updated_task.__dict__)
+            return self
+        except HttpError as e:
+            if e.resp.status == 403:
+                raise TasksPermissionError(f"Permission denied: {e}")
+            elif e.resp.status == 404:
+                raise TasksNotFoundError(f"Task or task list not found: {e}")
+            else:
+                raise TasksError(f"Tasks API error: {e}")
+        except Exception as e:
+            raise TasksError(f"Unexpected tasks service error: {e}")
 
-    def mark_completed(self) -> "Task":
+    def mark_completed(self, service: "Resource") -> "Task":
         """
         Marks this task as completed.
+        Args:
+            service: The tasks service instance.
         Returns:
             The updated Task object.
         """
-        return self.update_task(status='completed', completed=date.today())
+        return self.update_task(service, status='completed', completed=date.today())
 
-    def mark_incomplete(self) -> "Task":
+    def mark_incomplete(self, service: "Resource") -> "Task":
         """
         Marks this task as needing action (incomplete).
+        Args:
+            service: The tasks service instance.
         Returns:
             The updated Task object.
         """
-        return self.update_task(status='needsAction')
+        return self.update_task(service, status='needsAction')
 
     def is_completed(self) -> bool:
         """
