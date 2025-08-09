@@ -323,37 +323,158 @@ class Label:
     @staticmethod
     def _list_labels_with_service(service: "Resource") -> List["Label"]:
         """Implementation of list_labels using direct service."""
-        # This will contain the original implementation
-        # For now, return empty list - to be implemented
-        return []
+        logger.info("Fetching labels from Gmail")
+        
+        try:
+            labels_response = service.users().labels().list(userId='me').execute()
+            labels = labels_response.get('labels', [])
+            logger.info("Found %d labels", len(labels))
+            
+            labels_list = []
+            for label in labels:
+                try:
+                    new_label = Label(
+                        id=label.get('id'),
+                        name=label.get('name'),
+                        type=label.get('type')
+                    )
+                    labels_list.append(new_label)
+                except ValueError as e:
+                    logger.warning("Skipping invalid label: %s", e)
+            
+            return labels_list
+            
+        except HttpError as e:
+            if e.resp.status == 403:
+                raise GmailPermissionError(f"Permission denied accessing labels: {e}")
+            elif e.resp.status == 404:
+                raise EmailNotFoundError(f"Labels not found: {e}")
+            else:
+                raise GmailError(f"Gmail API error fetching labels: {e}")
+        except Exception as e:
+            raise GmailError(f"Unexpected error fetching labels: {e}")
 
     @staticmethod
     def _create_label_with_service(service: "Resource", name: str) -> "Label":
         """Implementation of create_label using direct service."""
-        # This will contain the original implementation
-        # For now, return a basic label - to be implemented
-        return Label(id="temp", name=name, type="user")
+        logger.info("Creating label with name: %s", name)
+        
+        if not name:
+            raise ValueError("Label name cannot be empty")
+        
+        try:
+            label = service.users().labels().create(
+                userId='me',
+                body={'name': name, 'type': 'user'}
+            ).execute()
+            
+            new_label = Label(
+                id=label.get('id'),
+                name=label.get('name'),
+                type=label.get('type')
+            )
+            logger.info("Label created successfully with ID: %s", new_label.id)
+            return new_label
+            
+        except HttpError as e:
+            if e.resp.status == 403:
+                raise GmailPermissionError(f"Permission denied creating label: {e}")
+            elif e.resp.status == 409:
+                raise GmailError(f"Label with name '{name}' already exists: {e}")
+            else:
+                raise GmailError(f"Gmail API error creating label: {e}")
+        except Exception as e:
+            raise GmailError(f"Unexpected error creating label: {e}")
 
     @staticmethod
     def _get_label_with_service(service: "Resource", label_id: str) -> "Label":
         """Implementation of get_label using direct service."""
-        # This will contain the original implementation
-        # For now, return a basic label - to be implemented
-        return Label(id=label_id, name="Temp Label", type="user")
+        logger.info("Fetching label with ID: %s", label_id)
+        
+        try:
+            label_result = service.users().labels().get(
+                userId='me',
+                id=label_id
+            ).execute()
+            
+            return Label(
+                id=label_result.get('id'),
+                name=label_result.get('name'),
+                type=label_result.get('type', 'user').lower()
+            )
+            
+        except HttpError as e:
+            if e.resp.status == 404:
+                raise GmailNotFoundError(f"Label not found: {label_id}")
+            elif e.resp.status == 403:
+                raise GmailPermissionError(f"Permission denied accessing label: {e}")
+            else:
+                raise GmailAPIError(f"Failed to get label {label_id}: {e}")
 
     @staticmethod
     def _delete_label_with_service(service: "Resource", label_id: str) -> bool:
         """Implementation of delete_label using direct service."""
-        # This will contain the original implementation
-        # For now, return True - to be implemented
-        return True
+        logger.info("Deleting label with ID: %s", label_id)
+        
+        try:
+            service.users().labels().delete(
+                userId='me',
+                id=label_id
+            ).execute()
+            
+            logger.info("Label %s deleted successfully", label_id)
+            return True
+            
+        except HttpError as e:
+            if e.resp.status == 404:
+                raise GmailNotFoundError(f"Label not found: {label_id}")
+            elif e.resp.status == 403:
+                raise GmailPermissionError(f"Permission denied deleting label: {e}")
+            elif e.resp.status == 400:
+                raise GmailError(f"Cannot delete system label: {label_id}")
+            else:
+                raise GmailAPIError(f"Failed to delete label {label_id}: {e}")
+        except Exception as e:
+            raise GmailError(f"Unexpected error deleting label: {e}")
 
     @staticmethod
     def _update_label_with_service(service: "Resource", label_id: str, new_name: str) -> "Label":
         """Implementation of update_label using direct service."""
-        # This will contain the original implementation
-        # For now, return a basic label - to be implemented
-        return Label(id=label_id, name=new_name, type="user")
+        logger.info("Updating label %s with new name: %s", label_id, new_name)
+        
+        if not new_name or not new_name.strip():
+            raise ValueError("Label name cannot be empty")
+        
+        try:
+            label_body = {
+                'name': new_name.strip()
+            }
+            
+            updated_label = service.users().labels().update(
+                userId='me',
+                id=label_id,
+                body=label_body
+            ).execute()
+            
+            return Label(
+                id=updated_label.get('id'),
+                name=updated_label.get('name'),
+                type=updated_label.get('type', 'user').lower()
+            )
+            
+        except HttpError as e:
+            if e.resp.status == 404:
+                raise GmailNotFoundError(f"Label not found: {label_id}")
+            elif e.resp.status == 403:
+                raise GmailPermissionError(f"Permission denied updating label: {e}")
+            elif e.resp.status == 409:
+                raise GmailError(f"Label name '{new_name}' already exists")
+            elif e.resp.status == 400:
+                raise GmailError(f"Cannot update system label: {label_id}")
+            else:
+                raise GmailAPIError(f"Failed to update label {label_id}: {e}")
+        except Exception as e:
+            raise GmailError(f"Unexpected error updating label: {e}")
 
     def __repr__(self):
         return f"Label(id={self.id}, name={self.name}, type={self.type})"
@@ -376,7 +497,7 @@ class GmailService:
         self._service = service
         self._user_client = user_client
 
-    def list_emails(self, max_results: Optional[int] = 30, **kwargs) -> List[EmailMessage]:
+    def list_emails(self, max_results: Optional[int] = 30, **kwargs) -> List["EmailMessage"]:
         """List emails for the user."""
         emails = EmailMessage._list_emails_with_service(self._service, max_results=max_results, **kwargs)
         # Set user context for each email and its attachments
@@ -384,13 +505,13 @@ class GmailService:
             email.set_user_client(self._user_client)
         return emails
 
-    def get_email(self, message_id: str) -> EmailMessage:
+    def get_email(self, message_id: str) -> "EmailMessage":
         """Get specific email by message ID."""
         email = EmailMessage._get_email_with_service(self._service, message_id)
         email.set_user_client(self._user_client)
         return email
 
-    def send_email(self, to: List[str], subject: Optional[str] = None, **kwargs) -> EmailMessage:
+    def send_email(self, to: List[str], subject: Optional[str] = None, **kwargs) -> "EmailMessage":
         """Send email as the user."""
         email = EmailMessage._send_email_with_service(self._service, to, subject=subject, **kwargs)
         email.set_user_client(self._user_client)
@@ -764,23 +885,245 @@ class EmailMessage:
     @staticmethod
     def _list_emails_with_service(service: "Resource", max_results: Optional[int] = 30, **kwargs) -> List["EmailMessage"]:
         """Implementation of list_emails using direct service."""
-        # This will contain the original implementation from the class methods
-        # For now, return empty list - to be implemented
-        return []
+        logger.info("Fetching emails with max_results=%s", max_results)
+        
+        # Input validation
+        if max_results and (max_results < 1 or max_results > MAX_RESULTS_LIMIT):
+            raise ValueError(f"max_results must be between 1 and {MAX_RESULTS_LIMIT}")
+        
+        try:
+            # Build request parameters
+            request_params = {
+                'userId': 'me',
+                'maxResults': max_results or DEFAULT_MAX_RESULTS
+            }
+            
+            # Add optional parameters
+            if kwargs.get('query'):
+                request_params['q'] = kwargs['query']
+            if kwargs.get('include_spam_trash'):
+                request_params['includeSpamTrash'] = kwargs['include_spam_trash']
+            if kwargs.get('label_ids'):
+                request_params['labelIds'] = kwargs['label_ids']
+            
+            # Get list of message IDs
+            messages_result = service.users().messages().list(**request_params).execute()
+            messages = messages_result.get('messages', [])
+            
+            if not messages:
+                logger.info("No emails found")
+                return []
+            
+            logger.info("Found %d email IDs, fetching full messages", len(messages))
+            
+            # Fetch full message details for each message
+            email_messages = []
+            for message in messages:
+                try:
+                    # Get full message details
+                    full_message = service.users().messages().get(
+                        userId='me',
+                        id=message['id'],
+                        format='full'
+                    ).execute()
+                    
+                    # Convert to EmailMessage object
+                    email_message = EmailMessage._from_gmail_message(full_message, service)
+                    email_messages.append(email_message)
+                    
+                except Exception as e:
+                    logger.warning("Skipping message %s due to error: %s", message.get('id'), e)
+                    continue
+            
+            logger.info("Successfully processed %d emails", len(email_messages))
+            return email_messages
+            
+        except HttpError as e:
+            if e.resp.status == 403:
+                raise GmailPermissionError(f"Permission denied: {e}")
+            elif e.resp.status == 404:
+                raise EmailNotFoundError(f"Emails not found: {e}")
+            else:
+                raise GmailError(f"Gmail API error: {e}")
+        except Exception as e:
+            raise GmailError(f"Unexpected error fetching emails: {e}")
 
     @staticmethod
     def _get_email_with_service(service: "Resource", message_id: str) -> "EmailMessage":
         """Implementation of get_email using direct service."""
-        # This will contain the original implementation
-        # For now, return a basic message - to be implemented
-        return EmailMessage(message_id=message_id)
+        logger.info("Fetching email with message_id=%s", message_id)
+        
+        if not message_id:
+            raise ValueError("Message ID cannot be empty")
+        
+        try:
+            # Get full message details
+            gmail_message = service.users().messages().get(
+                userId='me',
+                id=message_id,
+                format='full'
+            ).execute()
+            
+            # Convert to EmailMessage object
+            email_message = EmailMessage._from_gmail_message(gmail_message, service)
+            logger.info("Successfully fetched email: %s", email_message.subject)
+            return email_message
+            
+        except HttpError as e:
+            if e.resp.status == 403:
+                raise GmailPermissionError(f"Permission denied accessing email: {e}")
+            elif e.resp.status == 404:
+                raise EmailNotFoundError(f"Email not found with ID {message_id}: {e}")
+            else:
+                raise GmailError(f"Gmail API error fetching email: {e}")
+        except Exception as e:
+            raise GmailError(f"Unexpected error fetching email {message_id}: {e}")
 
     @staticmethod
     def _send_email_with_service(service: "Resource", to: List[str], subject: Optional[str] = None, **kwargs) -> "EmailMessage":
         """Implementation of send_email using direct service."""
-        # This will contain the original implementation
-        # For now, return a basic message - to be implemented
-        return EmailMessage(subject=subject)
+        logger.info("Sending email with subject=%s to=%s", subject, to)
+        
+        if not to:
+            raise ValueError("At least one recipient is required")
+        
+        try:
+            # Create the email message
+            raw_message = EmailMessage._create_message(
+                to=to,
+                subject=subject,
+                body_text=kwargs.get('body_text'),
+                body_html=kwargs.get('body_html'),
+                cc=kwargs.get('cc'),
+                bcc=kwargs.get('bcc'),
+                attachments=kwargs.get('attachments'),
+                reply_to_message_id=kwargs.get('reply_to_message_id')
+            )
+            
+            # Send the email
+            message_body = {'raw': raw_message}
+            if kwargs.get('thread_id'):
+                message_body['threadId'] = kwargs['thread_id']
+            
+            sent_message = service.users().messages().send(
+                userId='me',
+                body=message_body
+            ).execute()
+            
+            logger.info("Email sent successfully with ID: %s", sent_message.get('id'))
+            
+            # Get the full sent message details to return
+            return EmailMessage._get_email_with_service(service, sent_message['id'])
+            
+        except HttpError as e:
+            if e.resp.status == 403:
+                raise GmailPermissionError(f"Permission denied sending email: {e}")
+            elif e.resp.status == 400:
+                raise GmailError(f"Invalid email format or content: {e}")
+            else:
+                raise GmailError(f"Gmail API error sending email: {e}")
+        except Exception as e:
+            raise GmailError(f"Unexpected error sending email: {e}")
+
+    def reply(self, body_text: Optional[str] = None, body_html: Optional[str] = None, attachments: Optional[List[str]] = None) -> "EmailMessage":
+        """
+        Sends a reply to the current email message.
+        Args:
+            body_text: Plain text body of the email.
+            body_html: HTML body of the email.
+            attachments: List of file paths to attach (optional).
+        Returns:
+            An EmailMessage object representing the message sent.
+        """
+        if self.is_from('me'):
+            to = self.get_recipient_emails()
+        else:
+            to = [self.sender.email]
+
+        logger.info("Replying to message %s", self.message_id)
+        user_client = self._get_user_client()
+        return user_client.gmail.send_email(
+            to=to,
+            subject=self.subject,
+            body_text=body_text,
+            body_html=body_html,
+            attachments=attachments,
+            reply_to_message_id=self.reply_to_id
+        )
+
+    def mark_as_read(self) -> bool:
+        """
+        Marks a message as read by removing the UNREAD label.
+        Returns:
+            True if the operation was successful, False otherwise.
+        """
+        logger.info("Marking message as read: %s", self.message_id)
+        user_client = self._get_user_client()
+        # This will be implemented by updating the service layer
+        # For now, update local state
+        self.is_read = True
+        return True
+
+    def mark_as_unread(self) -> bool:
+        """
+        Marks a message as unread by adding the UNREAD label.
+        Returns:
+            True if the operation was successful, False otherwise.
+        """
+        logger.info("Marking message as unread: %s", self.message_id)
+        user_client = self._get_user_client()
+        # This will be implemented by updating the service layer
+        # For now, update local state
+        self.is_read = False
+        return True
+
+    def add_label(self, label_ids: List[str]) -> bool:
+        """
+        Adds labels to a message.
+        Args:
+            label_ids: List of label IDs to add.
+        Returns:
+            True if the operation was successful, False otherwise.
+        """
+        logger.info("Adding labels %s to message: %s", label_ids, self.message_id)
+        user_client = self._get_user_client()
+        # This will be implemented by updating the service layer
+        # For now, update local state
+        for label_id in label_ids:
+            if label_id not in self.label_ids:
+                self.label_ids.append(label_id)
+        return True
+
+    def remove_label(self, label_ids: List[str]) -> bool:
+        """
+        Removes labels from a message.
+        Args:
+            label_ids: List of label IDs to remove.
+        Returns:
+            True if the operation was successful, False otherwise.
+        """
+        logger.info("Removing labels %s from message: %s", label_ids, self.message_id)
+        user_client = self._get_user_client()
+        # This will be implemented by updating the service layer
+        # For now, update local state
+        for label_id in label_ids:
+            if label_id in self.label_ids:
+                self.label_ids.remove(label_id)
+        return True
+
+    def delete_email(self, permanent: bool = False) -> bool:
+        """
+        Deletes a message (moves to trash or permanently deletes).
+        Args:
+            permanent: If True, permanently deletes the message. If False, moves to trash.
+        Returns:
+            True if the operation was successful, False otherwise.
+        """
+        logger.info("Deleting message: %s, permanent=%s", self.message_id, permanent)
+        user_client = self._get_user_client()
+        # This will be implemented by updating the service layer
+        # For now, return True
+        return True
 
 
 

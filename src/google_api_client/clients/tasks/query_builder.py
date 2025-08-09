@@ -26,7 +26,7 @@ class TaskQueryBuilder:
             .execute())
     """
     
-    def __init__(self, task_class):
+    def __init__(self, task_class, service, user_client=None):
         self._task_class = task_class
         self._max_results: Optional[int] = DEFAULT_MAX_RESULTS
         self._completed_max: Optional[datetime] = None
@@ -36,6 +36,8 @@ class TaskQueryBuilder:
         self._show_completed: Optional[bool] = None
         self._show_hidden: Optional[bool] = None
         self._task_list_id: str = '@default'
+        self._service = service
+        self._user_client = user_client
         
     def limit(self, count: int) -> "TaskQueryBuilder":
         """
@@ -306,8 +308,17 @@ class TaskQueryBuilder:
         if self._show_hidden is not None:
             request_params['showHidden'] = self._show_hidden
             
-        # Use the enhanced list_tasks method with query parameters
-        tasks = self._task_class._list_tasks_with_filters(**request_params)
+        # Use the service layer implementation instead of dataclass methods
+        tasks = self._task_class._list_tasks_with_service(
+            service=self._service,
+            task_list_id=request_params.get('tasklist', '@default'),
+            max_results=request_params.get('maxResults', DEFAULT_MAX_RESULTS)
+        )
+        
+        # Set user context for all retrieved tasks if user_client is available
+        if self._user_client:
+            for task in tasks:
+                task.set_user_client(self._user_client)
         
         logger.info("Builder query returned %d tasks", len(tasks))
         return tasks

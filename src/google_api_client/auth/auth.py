@@ -79,7 +79,6 @@ def get_credentials_from_file(credentials_path: str=None, token_path: str=None, 
 
     return creds
 
-
 @cache
 def get_gmail_service(credentials: Credentials):
     return build("gmail", "v1", credentials=credentials)
@@ -91,18 +90,4 @@ def get_calendar_service(credentials: Credentials):
 @cache
 def get_tasks_service(credentials: Credentials):
     return build("tasks", "v1", credentials=credentials)
-
-def get_service(service_name: str, version: str, credentials: Credentials):
-    """
-    Generic function to build any Google API service.
-    
-    Args:
-        service_name: Name of the Google service (e.g., 'gmail', 'calendar', 'tasks')
-        version: API version (e.g., 'v1', 'v3')
-        credentials: Google OAuth2 credentials
-        
-    Returns:
-        Google API service instance
-    """
-    return build(service_name, version, credentials=credentials)
 

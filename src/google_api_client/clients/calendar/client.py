@@ -358,23 +358,127 @@ class CalendarEvent:
     @staticmethod
     def _list_events_with_service(service: "Resource", **kwargs) -> List["CalendarEvent"]:
         """Implementation of list_events using direct service."""
-        # This will contain the original implementation
-        # For now, return empty list - to be implemented
-        return []
+        logger.info("Fetching calendar events with kwargs: %s", kwargs)
+        
+        number_of_results = kwargs.get('number_of_results', DEFAULT_MAX_RESULTS)
+        if number_of_results and (number_of_results < 1 or number_of_results > MAX_RESULTS_LIMIT):
+            raise ValueError(f"number_of_results must be between 1 and {MAX_RESULTS_LIMIT}")
+        
+        try:
+            request_params = {
+                'calendarId': kwargs.get('calendar_id', 'primary'),
+                'maxResults': number_of_results or DEFAULT_MAX_RESULTS,
+                'singleEvents': True,
+                'orderBy': 'startTime'
+            }
+            
+            # Add time range filters if provided
+            if kwargs.get('start'):
+                request_params['timeMin'] = convert_datetime_to_iso(kwargs['start'])
+            if kwargs.get('end'):
+                request_params['timeMax'] = convert_datetime_to_iso(kwargs['end'])
+            if kwargs.get('query'):
+                request_params['q'] = kwargs['query']
+            
+            events_result = service.events().list(**request_params).execute()
+            events_data = events_result.get('items', [])
+            
+            calendar_events = []
+            for event_data in events_data:
+                try:
+                    calendar_event = CalendarEvent._from_google_event(event_data)
+                    calendar_events.append(calendar_event)
+                except Exception as e:
+                    logger.warning("Failed to parse event %s: %s", event_data.get('id'), e)
+                    continue
+            
+            logger.info("Retrieved %d calendar events", len(calendar_events))
+            return calendar_events
+            
+        except HttpError as e:
+            if e.resp.status == 403:
+                raise CalendarPermissionError(f"Permission denied: {e}")
+            elif e.resp.status == 404:
+                raise CalendarNotFoundError(f"Calendar not found: {e}")
+            else:
+                raise CalendarError(f"Calendar API error listing events: {e}")
+        except Exception as e:
+            raise CalendarError(f"Unexpected error listing events: {e}")
 
     @staticmethod
-    def _get_event_with_service(service: "Resource", event_id: str) -> "CalendarEvent":
+    def _get_event_with_service(service: "Resource", event_id: str, calendar_id: str = 'primary') -> "CalendarEvent":
         """Implementation of get_event using direct service."""
-        # This will contain the original implementation
-        # For now, return a basic event - to be implemented
-        return CalendarEvent(id=event_id)
+        logger.info("Fetching calendar event with ID: %s", event_id)
+        
+        try:
+            event_data = service.events().get(
+                calendarId=calendar_id,
+                eventId=event_id
+            ).execute()
+            
+            calendar_event = CalendarEvent._from_google_event(event_data)
+            return calendar_event
+            
+        except HttpError as e:
+            if e.resp.status == 404:
+                raise CalendarNotFoundError(f"Event not found: {event_id}")
+            elif e.resp.status == 403:
+                raise CalendarPermissionError(f"Permission denied accessing event: {e}")
+            else:
+                raise CalendarError(f"Calendar API error getting event {event_id}: {e}")
+        except Exception as e:
+            raise CalendarError(f"Unexpected error getting event: {e}")
 
     @staticmethod
     def _create_event_with_service(service: "Resource", start, end, summary: str = None, **kwargs) -> "CalendarEvent":
         """Implementation of create_event using direct service."""
-        # This will contain the original implementation
-        # For now, return a basic event - to be implemented
-        return CalendarEvent(summary=summary, start=start, end=end)
+        logger.info("Creating calendar event: %s", summary)
+        
+        if not start or not end:
+            raise ValueError("Event must have both start and end times")
+        if start >= end:
+            raise ValueError("Event start time must be before end time")
+        
+        try:
+            event_body = {
+                'summary': summary or "New Event",
+                'start': {'dateTime': convert_datetime_to_iso(start)},
+                'end': {'dateTime': convert_datetime_to_iso(end)}
+            }
+            
+            # Add optional fields if provided
+            if kwargs.get('description'):
+                event_body['description'] = kwargs['description']
+            if kwargs.get('location'):
+                event_body['location'] = kwargs['location']
+            if kwargs.get('attendees'):
+                event_body['attendees'] = [
+                    attendee.to_dict() if hasattr(attendee, 'to_dict') else attendee 
+                    for attendee in kwargs['attendees']
+                ]
+            if kwargs.get('recurrence'):
+                event_body['recurrence'] = kwargs['recurrence']
+            
+            calendar_id = kwargs.get('calendar_id', 'primary')
+            
+            created_event = service.events().insert(
+                calendarId=calendar_id,
+                body=event_body
+            ).execute()
+            
+            calendar_event = CalendarEvent._from_google_event(created_event)
+            logger.info("Calendar event created successfully with ID: %s", calendar_event.id)
+            return calendar_event
+            
+        except HttpError as e:
+            if e.resp.status == 403:
+                raise CalendarPermissionError(f"Permission denied creating event: {e}")
+            elif e.resp.status == 409:
+                raise CalendarError(f"Event conflict: {e}")
+            else:
+                raise CalendarError(f"Calendar API error creating event: {e}")
+        except Exception as e:
+            raise CalendarError(f"Unexpected error creating event: {e}")
 
     def __repr__(self):
         return (
@@ -424,17 +528,67 @@ class CalendarService:
         event.set_user_client(self._user_client)
         return event
 
-    def _update_event(self, event_id: str, event: CalendarEvent) -> None:
+    def _update_event(self, event_id: str, event: CalendarEvent, calendar_id: str = 'primary') -> CalendarEvent:
         """Update calendar event."""
-        # This will contain the original sync_changes implementation
-        # For now, just pass - to be implemented
-        pass
+        logger.info("Updating calendar event with ID: %s", event_id)
+        
+        try:
+            event_body = event.to_dict()
+            # Remove fields that shouldn't be updated
+            event_body.pop('id', None)
+            event_body.pop('htmlLink', None)
+            event_body.pop('recurringEventId', None)
+            
+            updated_event = self._service.events().update(
+                calendarId=calendar_id,
+                eventId=event_id,
+                body=event_body
+            ).execute()
+            
+            updated_calendar_event = CalendarEvent._from_google_event(updated_event)
+            updated_calendar_event.set_user_client(self._user_client)
+            logger.info("Calendar event updated successfully")
+            return updated_calendar_event
+            
+        except HttpError as e:
+            if e.resp.status == 404:
+                raise CalendarNotFoundError(f"Event not found: {event_id}")
+            elif e.resp.status == 403:
+                raise CalendarPermissionError(f"Permission denied updating event: {e}")
+            elif e.resp.status == 409:
+                raise CalendarError(f"Event conflict during update: {e}")
+            else:
+                raise CalendarError(f"Calendar API error updating event {event_id}: {e}")
+        except Exception as e:
+            raise CalendarError(f"Unexpected error updating event: {e}")
 
-    def _delete_event(self, event_id: str, delete_all_recurrence: bool = False) -> None:
+    def _delete_event(self, event_id: str, delete_all_recurrence: bool = False, calendar_id: str = 'primary') -> bool:
         """Delete calendar event."""
-        # This will contain the original delete_event implementation
-        # For now, just pass - to be implemented
-        pass
+        logger.info("Deleting calendar event with ID: %s, delete_all_recurrence: %s", event_id, delete_all_recurrence)
+        
+        try:
+            request_params = {
+                'calendarId': calendar_id,
+                'eventId': event_id
+            }
+            
+            if delete_all_recurrence:
+                request_params['sendNotifications'] = False
+                
+            self._service.events().delete(**request_params).execute()
+            
+            logger.info("Calendar event deleted successfully")
+            return True
+            
+        except HttpError as e:
+            if e.resp.status == 404:
+                raise CalendarNotFoundError(f"Event not found: {event_id}")
+            elif e.resp.status == 403:
+                raise CalendarPermissionError(f"Permission denied deleting event: {e}")
+            else:
+                raise CalendarError(f"Calendar API error deleting event {event_id}: {e}")
+        except Exception as e:
+            raise CalendarError(f"Unexpected error deleting event: {e}")
 
     def query(self):
         """Create event query builder for this user."""

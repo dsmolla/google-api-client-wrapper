@@ -28,7 +28,7 @@ class EventQueryBuilder:
             .execute())
     """
     
-    def __init__(self, calendar_event_class):
+    def __init__(self, calendar_event_class, service, user_client=None):
         self._calendar_event_class = calendar_event_class
         self._number_of_results: Optional[int] = DEFAULT_MAX_RESULTS
         self._start: Optional[datetime] = None
@@ -38,6 +38,8 @@ class EventQueryBuilder:
         self._attendee_filter: Optional[str] = None
         self._has_location_filter: Optional[bool] = None
         self._single_events_only: bool = True  # Default from original API
+        self._service = service
+        self._user_client = user_client
         
     def limit(self, count: int) -> "EventQueryBuilder":
         """
@@ -277,14 +279,20 @@ class EventQueryBuilder:
         """
         logger.info("Executing event query with builder")
         
-        # Use the original list_events method
-        events = self._calendar_event_class.list_events(
+        # Use the service layer implementation instead of dataclass methods
+        events = self._calendar_event_class._list_events_with_service(
+            service=self._service,
             number_of_results=self._number_of_results,
             start=self._start,
             end=self._end,
             query=self._query,
             calendar_id=self._calendar_id,
         )
+        
+        # Set user context for all retrieved events if user_client is available
+        if self._user_client:
+            for event in events:
+                event.set_user_client(self._user_client)
         
         # Apply any client-side filters
         filtered_events = self._apply_post_filters(events)

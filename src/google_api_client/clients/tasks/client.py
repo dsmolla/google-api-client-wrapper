@@ -50,6 +50,30 @@ class TaskList:
         return self._user_client
 
     @staticmethod
+    def _from_google_task_list(google_task_list: dict) -> "TaskList":
+        """
+        Creates a TaskList instance from a Google Tasks API response.
+        Args:
+            google_task_list: A dictionary containing task list data from Google Tasks API.
+        Returns:
+            A TaskList instance populated with the data from the dictionary.
+        """
+        def parse_datetime_field(field_value):
+            if not field_value:
+                return None
+            try:
+                return datetime.fromisoformat(field_value.replace('Z', '+00:00'))
+            except:
+                logger.warning("Failed to parse datetime: %s", field_value)
+                return None
+
+        return TaskList(
+            id=google_task_list.get('id'),
+            title=google_task_list.get('title'),
+            updated=parse_datetime_field(google_task_list.get('updated'))
+        )
+
+    @staticmethod
     def _from_google_tasklist(google_tasklist: dict) -> "TaskList":
         """
         Creates a TaskList instance from a Google Tasks API response.
@@ -114,23 +138,83 @@ class TaskList:
     @staticmethod
     def _list_task_lists_with_service(service: "Resource") -> List["TaskList"]:
         """Implementation of list_task_lists using direct service."""
-        # This will contain the original implementation
-        # For now, return empty list - to be implemented
-        return []
+        logger.info("Fetching task lists")
+        
+        try:
+            task_lists_result = service.tasklists().list().execute()
+            task_lists_data = task_lists_result.get('items', [])
+            
+            task_list_objects = []
+            for task_list_data in task_lists_data:
+                try:
+                    task_list = TaskList._from_google_task_list(task_list_data)
+                    task_list_objects.append(task_list)
+                except Exception as e:
+                    logger.warning("Failed to parse task list %s: %s", task_list_data.get('id'), e)
+                    continue
+            
+            logger.info("Retrieved %d task lists", len(task_list_objects))
+            return task_list_objects
+            
+        except HttpError as e:
+            if e.resp.status == 403:
+                raise TasksPermissionError(f"Permission denied: {e}")
+            else:
+                raise TasksError(f"Tasks API error listing task lists: {e}")
+        except Exception as e:
+            raise TasksError(f"Unexpected error listing task lists: {e}")
 
     @staticmethod
     def _get_task_list_with_service(service: "Resource", task_list_id: str) -> "TaskList":
         """Implementation of get_task_list using direct service."""
-        # This will contain the original implementation
-        # For now, return a basic task list - to be implemented
-        return TaskList(id=task_list_id, title="Temp List")
+        logger.info("Fetching task list with ID: %s", task_list_id)
+        
+        try:
+            task_list_data = service.tasklists().get(
+                tasklist=task_list_id
+            ).execute()
+            
+            task_list = TaskList._from_google_task_list(task_list_data)
+            return task_list
+            
+        except HttpError as e:
+            if e.resp.status == 404:
+                raise TasksNotFoundError(f"Task list not found: {task_list_id}")
+            elif e.resp.status == 403:
+                raise TasksPermissionError(f"Permission denied accessing task list: {e}")
+            else:
+                raise TasksError(f"Tasks API error getting task list {task_list_id}: {e}")
+        except Exception as e:
+            raise TasksError(f"Unexpected error getting task list: {e}")
 
     @staticmethod
     def _create_task_list_with_service(service: "Resource", title: str) -> "TaskList":
         """Implementation of create_task_list using direct service."""
-        # This will contain the original implementation
-        # For now, return a basic task list - to be implemented
-        return TaskList(id="temp", title=title)
+        logger.info("Creating task list: %s", title)
+        
+        if not title or not title.strip():
+            raise ValueError("Task list title cannot be empty")
+        
+        try:
+            task_list_body = {
+                'title': title.strip()
+            }
+            
+            created_task_list = service.tasklists().insert(
+                body=task_list_body
+            ).execute()
+            
+            task_list = TaskList._from_google_task_list(created_task_list)
+            logger.info("Task list created successfully with ID: %s", task_list.id)
+            return task_list
+            
+        except HttpError as e:
+            if e.resp.status == 403:
+                raise TasksPermissionError(f"Permission denied creating task list: {e}")
+            else:
+                raise TasksError(f"Tasks API error creating task list: {e}")
+        except Exception as e:
+            raise TasksError(f"Unexpected error creating task list: {e}")
 
     def __repr__(self):
         return f"TaskList(id={self.id!r}, title={self.title!r})"
@@ -332,23 +416,111 @@ class Task:
     @staticmethod
     def _list_tasks_with_service(service: "Resource", task_list_id: str='@default', max_results: Optional[int] = 100) -> List["Task"]:
         """Implementation of list_tasks using direct service."""
-        # This will contain the original implementation
-        # For now, return empty list - to be implemented
-        return []
+        logger.info("Fetching tasks from task list: %s, max_results: %s", task_list_id, max_results)
+        
+        if max_results and (max_results < 1 or max_results > MAX_RESULTS_LIMIT):
+            raise ValueError(f"max_results must be between 1 and {MAX_RESULTS_LIMIT}")
+        
+        try:
+            request_params = {
+                'tasklist': task_list_id,
+                'maxResults': max_results or DEFAULT_MAX_RESULTS
+            }
+            
+            tasks_result = service.tasks().list(**request_params).execute()
+            tasks_data = tasks_result.get('items', [])
+            
+            task_objects = []
+            for task_data in tasks_data:
+                try:
+                    task = Task._from_google_task(task_data, task_list_id)
+                    task_objects.append(task)
+                except Exception as e:
+                    logger.warning("Failed to parse task %s: %s", task_data.get('id'), e)
+                    continue
+            
+            logger.info("Retrieved %d tasks", len(task_objects))
+            return task_objects
+            
+        except HttpError as e:
+            if e.resp.status == 403:
+                raise TasksPermissionError(f"Permission denied: {e}")
+            elif e.resp.status == 404:
+                raise TasksNotFoundError(f"Task list not found: {task_list_id}")
+            else:
+                raise TasksError(f"Tasks API error listing tasks: {e}")
+        except Exception as e:
+            raise TasksError(f"Unexpected error listing tasks: {e}")
 
     @staticmethod
     def _get_task_with_service(service: "Resource", task_list_id: str, task_id: str) -> "Task":
         """Implementation of get_task using direct service."""
-        # This will contain the original implementation
-        # For now, return a basic task - to be implemented
-        return Task(id=task_id, title="Temp Task", task_list_id=task_list_id)
+        logger.info("Fetching task with ID: %s from task list: %s", task_id, task_list_id)
+        
+        try:
+            task_data = service.tasks().get(
+                tasklist=task_list_id,
+                task=task_id
+            ).execute()
+            
+            task = Task._from_google_task(task_data, task_list_id)
+            return task
+            
+        except HttpError as e:
+            if e.resp.status == 404:
+                raise TasksNotFoundError(f"Task not found: {task_id}")
+            elif e.resp.status == 403:
+                raise TasksPermissionError(f"Permission denied accessing task: {e}")
+            else:
+                raise TasksError(f"Tasks API error getting task {task_id}: {e}")
+        except Exception as e:
+            raise TasksError(f"Unexpected error getting task: {e}")
 
     @staticmethod
     def _create_task_with_service(service: "Resource", title: str, task_list_id: str = '@default', **kwargs) -> "Task":
         """Implementation of create_task using direct service."""
-        # This will contain the original implementation
-        # For now, return a basic task - to be implemented
-        return Task(id="temp", title=title, task_list_id=task_list_id)
+        logger.info("Creating task: %s in task list: %s", title, task_list_id)
+        
+        if not title or not title.strip():
+            raise ValueError("Task title cannot be empty")
+        
+        try:
+            task_body = {
+                'title': title.strip()
+            }
+            
+            # Add optional fields if provided
+            if kwargs.get('notes'):
+                task_body['notes'] = kwargs['notes']
+            if kwargs.get('due'):
+                # Convert due date to the format expected by Tasks API
+                if isinstance(kwargs['due'], date):
+                    task_body['due'] = datetime.combine(kwargs['due'], time.min).isoformat() + 'Z'
+                elif isinstance(kwargs['due'], datetime):
+                    task_body['due'] = kwargs['due'].isoformat() + 'Z'
+            if kwargs.get('parent'):
+                task_body['parent'] = kwargs['parent']
+            if kwargs.get('position'):
+                task_body['position'] = kwargs['position']
+            
+            created_task = service.tasks().insert(
+                tasklist=task_list_id,
+                body=task_body
+            ).execute()
+            
+            task = Task._from_google_task(created_task, task_list_id)
+            logger.info("Task created successfully with ID: %s", task.id)
+            return task
+            
+        except HttpError as e:
+            if e.resp.status == 403:
+                raise TasksPermissionError(f"Permission denied creating task: {e}")
+            elif e.resp.status == 404:
+                raise TasksNotFoundError(f"Task list not found: {task_list_id}")
+            else:
+                raise TasksError(f"Tasks API error creating task: {e}")
+        except Exception as e:
+            raise TasksError(f"Unexpected error creating task: {e}")
 
     def __repr__(self):
         return (
@@ -417,39 +589,152 @@ class TasksService:
     def _update_task(self, task_list_id: str, task_id: str, title: str = None, notes: str = None, 
                     status: str = None, completed: date = None, due: date = None) -> Task:
         """Update task."""
-        # This will contain the original update_task implementation
-        # For now, return a basic task - to be implemented
-        task = Task(id=task_id, title=title or "Updated Task", task_list_id=task_list_id)
-        task.set_user_client(self._user_client)
-        return task
+        logger.info("Updating task %s in task list %s", task_id, task_list_id)
+        
+        try:
+            task_body = {}
+            if title:
+                task_body['title'] = title
+            if notes is not None:
+                task_body['notes'] = notes
+            if status:
+                task_body['status'] = status
+            if completed:
+                task_body['completed'] = datetime.combine(completed, time.min).isoformat() + 'Z'
+            if due:
+                task_body['due'] = datetime.combine(due, time.min).isoformat() + 'Z'
+            
+            updated_task = self._service.tasks().update(
+                tasklist=task_list_id,
+                task=task_id,
+                body=task_body
+            ).execute()
+            
+            task = Task._from_google_task(updated_task, task_list_id)
+            task.set_user_client(self._user_client)
+            logger.info("Task updated successfully")
+            return task
+            
+        except HttpError as e:
+            if e.resp.status == 404:
+                raise TasksNotFoundError(f"Task not found: {task_id}")
+            elif e.resp.status == 403:
+                raise TasksPermissionError(f"Permission denied updating task: {e}")
+            else:
+                raise TasksError(f"Tasks API error updating task {task_id}: {e}")
+        except Exception as e:
+            raise TasksError(f"Unexpected error updating task: {e}")
 
     def _delete_task(self, task_list_id: str, task_id: str) -> bool:
         """Delete task."""
-        # This will contain the original delete_task implementation
-        # For now, return True - to be implemented
-        return True
+        logger.info("Deleting task %s from task list %s", task_id, task_list_id)
+        
+        try:
+            self._service.tasks().delete(
+                tasklist=task_list_id,
+                task=task_id
+            ).execute()
+            
+            logger.info("Task deleted successfully")
+            return True
+            
+        except HttpError as e:
+            if e.resp.status == 404:
+                raise TasksNotFoundError(f"Task not found: {task_id}")
+            elif e.resp.status == 403:
+                raise TasksPermissionError(f"Permission denied deleting task: {e}")
+            else:
+                raise TasksError(f"Tasks API error deleting task {task_id}: {e}")
+        except Exception as e:
+            raise TasksError(f"Unexpected error deleting task: {e}")
 
     def _move_task(self, task_list_id: str, task_id: str, parent: Optional[str] = None, previous: Optional[str] = None) -> Task:
         """Move task."""
-        # This will contain the original move_task implementation
-        # For now, return a basic task - to be implemented
-        task = Task(id=task_id, title="Moved Task", task_list_id=task_list_id)
-        task.set_user_client(self._user_client)
-        return task
+        logger.info("Moving task %s in task list %s", task_id, task_list_id)
+        
+        try:
+            request_params = {
+                'tasklist': task_list_id,
+                'task': task_id
+            }
+            if parent:
+                request_params['parent'] = parent
+            if previous:
+                request_params['previous'] = previous
+            
+            moved_task = self._service.tasks().move(**request_params).execute()
+            
+            task = Task._from_google_task(moved_task, task_list_id)
+            task.set_user_client(self._user_client)
+            logger.info("Task moved successfully")
+            return task
+            
+        except HttpError as e:
+            if e.resp.status == 404:
+                raise TasksNotFoundError(f"Task not found: {task_id}")
+            elif e.resp.status == 403:
+                raise TasksPermissionError(f"Permission denied moving task: {e}")
+            else:
+                raise TasksError(f"Tasks API error moving task {task_id}: {e}")
+        except Exception as e:
+            raise TasksError(f"Unexpected error moving task: {e}")
 
     def _update_task_list(self, task_list_id: str, title: str) -> TaskList:
         """Update task list."""
-        # This will contain the original update_task_list implementation
-        # For now, return a basic task list - to be implemented
-        task_list = TaskList(id=task_list_id, title=title)
-        task_list.set_user_client(self._user_client)
-        return task_list
+        logger.info("Updating task list %s with title: %s", task_list_id, title)
+        
+        if not title or not title.strip():
+            raise ValueError("Task list title cannot be empty")
+        
+        try:
+            task_list_body = {
+                'id': task_list_id,
+                'title': title.strip()
+            }
+            
+            updated_task_list = self._service.tasklists().update(
+                tasklist=task_list_id,
+                body=task_list_body
+            ).execute()
+            
+            task_list = TaskList._from_google_task_list(updated_task_list)
+            task_list.set_user_client(self._user_client)
+            logger.info("Task list updated successfully")
+            return task_list
+            
+        except HttpError as e:
+            if e.resp.status == 404:
+                raise TasksNotFoundError(f"Task list not found: {task_list_id}")
+            elif e.resp.status == 403:
+                raise TasksPermissionError(f"Permission denied updating task list: {e}")
+            else:
+                raise TasksError(f"Tasks API error updating task list {task_list_id}: {e}")
+        except Exception as e:
+            raise TasksError(f"Unexpected error updating task list: {e}")
 
     def _delete_task_list(self, task_list_id: str) -> bool:
         """Delete task list."""
-        # This will contain the original delete_task_list implementation
-        # For now, return True - to be implemented
-        return True
+        logger.info("Deleting task list %s", task_list_id)
+        
+        try:
+            self._service.tasklists().delete(
+                tasklist=task_list_id
+            ).execute()
+            
+            logger.info("Task list deleted successfully")
+            return True
+            
+        except HttpError as e:
+            if e.resp.status == 404:
+                raise TasksNotFoundError(f"Task list not found: {task_list_id}")
+            elif e.resp.status == 403:
+                raise TasksPermissionError(f"Permission denied deleting task list: {e}")
+            elif e.resp.status == 400:
+                raise TasksError(f"Cannot delete default task list: {task_list_id}")
+            else:
+                raise TasksError(f"Tasks API error deleting task list {task_list_id}: {e}")
+        except Exception as e:
+            raise TasksError(f"Unexpected error deleting task list: {e}")
 
     def query(self):
         """Create task query builder for this user."""
