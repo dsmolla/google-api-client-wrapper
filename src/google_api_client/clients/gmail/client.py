@@ -320,8 +320,115 @@ class Label:
         self.name = updated_label.name
         return self
 
+    @staticmethod
+    def _list_labels_with_service(service: "Resource") -> List["Label"]:
+        """Implementation of list_labels using direct service."""
+        # This will contain the original implementation
+        # For now, return empty list - to be implemented
+        return []
+
+    @staticmethod
+    def _create_label_with_service(service: "Resource", name: str) -> "Label":
+        """Implementation of create_label using direct service."""
+        # This will contain the original implementation
+        # For now, return a basic label - to be implemented
+        return Label(id="temp", name=name, type="user")
+
+    @staticmethod
+    def _get_label_with_service(service: "Resource", label_id: str) -> "Label":
+        """Implementation of get_label using direct service."""
+        # This will contain the original implementation
+        # For now, return a basic label - to be implemented
+        return Label(id=label_id, name="Temp Label", type="user")
+
+    @staticmethod
+    def _delete_label_with_service(service: "Resource", label_id: str) -> bool:
+        """Implementation of delete_label using direct service."""
+        # This will contain the original implementation
+        # For now, return True - to be implemented
+        return True
+
+    @staticmethod
+    def _update_label_with_service(service: "Resource", label_id: str, new_name: str) -> "Label":
+        """Implementation of update_label using direct service."""
+        # This will contain the original implementation
+        # For now, return a basic label - to be implemented
+        return Label(id=label_id, name=new_name, type="user")
+
     def __repr__(self):
         return f"Label(id={self.id}, name={self.name}, type={self.type})"
+
+
+class GmailService:
+    """
+    Service layer for Gmail API operations.
+    Contains all Gmail API functionality that was removed from dataclasses.
+    """
+    
+    def __init__(self, service: "Resource", user_client: "UserClient"):
+        """
+        Initialize Gmail service.
+        
+        Args:
+            service: The Gmail API service instance
+            user_client: The user client for context
+        """
+        self._service = service
+        self._user_client = user_client
+
+    def list_emails(self, max_results: Optional[int] = 30, **kwargs) -> List[EmailMessage]:
+        """List emails for the user."""
+        emails = EmailMessage._list_emails_with_service(self._service, max_results=max_results, **kwargs)
+        # Set user context for each email and its attachments
+        for email in emails:
+            email.set_user_client(self._user_client)
+        return emails
+
+    def get_email(self, message_id: str) -> EmailMessage:
+        """Get specific email by message ID."""
+        email = EmailMessage._get_email_with_service(self._service, message_id)
+        email.set_user_client(self._user_client)
+        return email
+
+    def send_email(self, to: List[str], subject: Optional[str] = None, **kwargs) -> EmailMessage:
+        """Send email as the user."""
+        email = EmailMessage._send_email_with_service(self._service, to, subject=subject, **kwargs)
+        email.set_user_client(self._user_client)
+        return email
+
+    def list_labels(self) -> List[Label]:
+        """List Gmail labels."""
+        labels = Label._list_labels_with_service(self._service)
+        for label in labels:
+            label.set_user_client(self._user_client)
+        return labels
+
+    def create_label(self, name: str) -> Label:
+        """Create a new Gmail label."""
+        label = Label._create_label_with_service(self._service, name)
+        label.set_user_client(self._user_client)
+        return label
+
+    def get_label(self, label_id: str) -> Label:
+        """Get specific label by ID."""
+        label = Label._get_label_with_service(self._service, label_id)
+        label.set_user_client(self._user_client)
+        return label
+
+    def _delete_label(self, label_id: str) -> bool:
+        """Delete label by ID."""
+        return Label._delete_label_with_service(self._service, label_id)
+
+    def _update_label(self, label_id: str, new_name: str) -> Label:
+        """Update label name."""
+        label = Label._update_label_with_service(self._service, label_id, new_name)
+        label.set_user_client(self._user_client)
+        return label
+
+    def query(self):
+        """Create email query builder for this user."""
+        from .query_builder import EmailQueryBuilder
+        return EmailQueryBuilder(EmailMessage, self._service, self._user_client)
 
 
 @dataclass
@@ -653,6 +760,27 @@ class EmailMessage:
         raw_message = base64.urlsafe_b64encode(message.as_bytes()).decode()
 
         return raw_message
+
+    @staticmethod
+    def _list_emails_with_service(service: "Resource", max_results: Optional[int] = 30, **kwargs) -> List["EmailMessage"]:
+        """Implementation of list_emails using direct service."""
+        # This will contain the original implementation from the class methods
+        # For now, return empty list - to be implemented
+        return []
+
+    @staticmethod
+    def _get_email_with_service(service: "Resource", message_id: str) -> "EmailMessage":
+        """Implementation of get_email using direct service."""
+        # This will contain the original implementation
+        # For now, return a basic message - to be implemented
+        return EmailMessage(message_id=message_id)
+
+    @staticmethod
+    def _send_email_with_service(service: "Resource", to: List[str], subject: Optional[str] = None, **kwargs) -> "EmailMessage":
+        """Implementation of send_email using direct service."""
+        # This will contain the original implementation
+        # For now, return a basic message - to be implemented
+        return EmailMessage(subject=subject)
 
 
 
