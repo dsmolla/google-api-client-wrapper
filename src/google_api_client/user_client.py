@@ -14,7 +14,7 @@ from googleapiclient.discovery import build
 
 from .services.gmail.api_service import GmailApiService
 from .services.calendar.api_service import CalendarApiService
-from .services.tasks.client import TasksService
+from .services.tasks.api_service import TasksApiService
 
 
 SCOPES = [
@@ -187,6 +187,6 @@ class UserClient:
     def tasks(self):
         """Tasks service layer for this user."""
         if self._tasks is None:
-            self._tasks = TasksService(self._get_tasks_service(), self)
+            self._tasks = TasksApiService(self._get_tasks_service())
         return self._tasks
 

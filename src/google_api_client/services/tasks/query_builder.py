@@ -1,15 +1,13 @@
 from datetime import datetime, date, timedelta
 from typing import Optional, List, TYPE_CHECKING
 import logging
+from .constants import MAX_RESULTS_LIMIT, DEFAULT_MAX_RESULTS, DEFAULT_TASK_LIST_ID
 
 if TYPE_CHECKING:
-    from .client import Task
+    from .types import Task
+    from .api_service import TasksApiService
 
 logger = logging.getLogger(__name__)
-
-# Constants (imported from tasks client)
-MAX_RESULTS_LIMIT = 100
-DEFAULT_MAX_RESULTS = 100
 
 
 class TaskQueryBuilder:
@@ -26,8 +24,8 @@ class TaskQueryBuilder:
             .execute())
     """
     
-    def __init__(self, task_class, service, user_client=None):
-        self._task_class = task_class
+    def __init__(self, api_service: "TasksApiService"):
+        self._api_service = api_service
         self._max_results: Optional[int] = DEFAULT_MAX_RESULTS
         self._completed_max: Optional[datetime] = None
         self._completed_min: Optional[datetime] = None
@@ -35,9 +33,7 @@ class TaskQueryBuilder:
         self._due_min: Optional[datetime] = None
         self._show_completed: Optional[bool] = None
         self._show_hidden: Optional[bool] = None
-        self._task_list_id: str = '@default'
-        self._service = service
-        self._user_client = user_client
+        self._task_list_id: str = DEFAULT_TASK_LIST_ID
         
     def limit(self, count: int) -> "TaskQueryBuilder":
         """
@@ -289,36 +285,17 @@ class TaskQueryBuilder:
         """
         logger.info("Executing task query with builder")
         
-        # Build request parameters
-        request_params = {
-            'tasklist': self._task_list_id,
-            'maxResults': self._max_results
-        }
-        
-        if self._completed_min:
-            request_params['completedMin'] = self._completed_min.isoformat() + 'Z'
-        if self._completed_max:
-            request_params['completedMax'] = self._completed_max.isoformat() + 'Z'
-        if self._due_min:
-            request_params['dueMin'] = self._due_min.isoformat() + 'Z'
-        if self._due_max:
-            request_params['dueMax'] = self._due_max.isoformat() + 'Z'
-        if self._show_completed is not None:
-            request_params['showCompleted'] = self._show_completed
-        if self._show_hidden is not None:
-            request_params['showHidden'] = self._show_hidden
-            
-        # Use the service layer implementation instead of dataclass methods
-        tasks = self._task_class._list_tasks_with_service(
-            service=self._service,
-            task_list_id=request_params.get('tasklist', '@default'),
-            max_results=request_params.get('maxResults', DEFAULT_MAX_RESULTS)
+        # Use the service layer implementation
+        tasks = self._api_service.list_tasks(
+            task_list_id=self._task_list_id,
+            max_results=self._max_results,
+            completed_min=self._completed_min,
+            completed_max=self._completed_max,
+            due_min=self._due_min,
+            due_max=self._due_max,
+            show_completed=self._show_completed,
+            show_hidden=self._show_hidden
         )
-        
-        # Set user context for all retrieved tasks if user_client is available
-        if self._user_client:
-            for task in tasks:
-                task.set_user_client(self._user_client)
         
         logger.info("Builder query returned %d tasks", len(tasks))
         return tasks
@@ -347,3 +324,6 @@ class TaskQueryBuilder:
             True if at least one task matches, False otherwise
         """
         return self.limit(1).count() > 0
+        
+    def __repr__(self):
+        return f"TaskQueryBuilder(task_list_id='{self._task_list_id}', limit={self._max_results})"
