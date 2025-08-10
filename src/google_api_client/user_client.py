@@ -13,7 +13,7 @@ from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
 
 from .services.gmail.api_service import GmailApiService
-from .services.calendar.client import CalendarService
+from .services.calendar.api_service import CalendarApiService
 from .services.tasks.client import TasksService
 
 
@@ -180,7 +180,7 @@ class UserClient:
     def calendar(self):
         """Calendar service layer for this user."""
         if self._calendar is None:
-            self._calendar = CalendarService(self._get_calendar_service(), self)
+            self._calendar = CalendarApiService(self._get_calendar_service())
         return self._calendar
 
     @property

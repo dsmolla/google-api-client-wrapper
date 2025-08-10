@@ -2,16 +2,13 @@ from datetime import datetime, date, time, timedelta
 from typing import Optional, List, TYPE_CHECKING
 import logging
 from ...utils.datetime import date_start, date_end, days_from_today
+from .constants import MAX_RESULTS_LIMIT, MAX_QUERY_LENGTH, DEFAULT_MAX_RESULTS, DEFAULT_CALENDAR_ID
 
 if TYPE_CHECKING:
-    from .client import CalendarEvent
+    from .types import CalendarEvent
+    from .api_service import CalendarApiService
 
 logger = logging.getLogger(__name__)
-
-# Constants (imported from calendar_client)
-MAX_RESULTS_LIMIT = 2500
-MAX_QUERY_LENGTH = 500
-DEFAULT_MAX_RESULTS = 100
 
 
 class EventQueryBuilder:
@@ -28,18 +25,16 @@ class EventQueryBuilder:
             .execute())
     """
     
-    def __init__(self, calendar_event_class, service, user_client=None):
-        self._calendar_event_class = calendar_event_class
-        self._number_of_results: Optional[int] = DEFAULT_MAX_RESULTS
+    def __init__(self, api_service: "CalendarApiService"):
+        self._api_service = api_service
+        self._max_results: Optional[int] = DEFAULT_MAX_RESULTS
         self._start: Optional[datetime] = None
         self._end: Optional[datetime] = None
         self._query: Optional[str] = None
-        self._calendar_id: str = "primary"
+        self._calendar_id: str = DEFAULT_CALENDAR_ID
         self._attendee_filter: Optional[str] = None
         self._has_location_filter: Optional[bool] = None
-        self._single_events_only: bool = True  # Default from original API
-        self._service = service
-        self._user_client = user_client
+        self._single_events_only: bool = True
         
     def limit(self, count: int) -> "EventQueryBuilder":
         """
@@ -51,7 +46,7 @@ class EventQueryBuilder:
         """
         if count < 1 or count > MAX_RESULTS_LIMIT:
             raise ValueError(f"Limit must be between 1 and {MAX_RESULTS_LIMIT}")
-        self._number_of_results = count
+        self._max_results = count
         return self
         
     def from_date(self, start: datetime) -> "EventQueryBuilder":
@@ -279,20 +274,15 @@ class EventQueryBuilder:
         """
         logger.info("Executing event query with builder")
         
-        # Use the service layer implementation instead of dataclass methods
-        events = self._calendar_event_class._list_events_with_service(
-            service=self._service,
-            number_of_results=self._number_of_results,
+        # Use the service layer implementation
+        events = self._api_service.list_events(
+            max_results=self._max_results,
             start=self._start,
             end=self._end,
             query=self._query,
             calendar_id=self._calendar_id,
+            single_events=self._single_events_only
         )
-        
-        # Set user context for all retrieved events if user_client is available
-        if self._user_client:
-            for event in events:
-                event.set_user_client(self._user_client)
         
         # Apply any client-side filters
         filtered_events = self._apply_post_filters(events)
@@ -325,3 +315,6 @@ class EventQueryBuilder:
             True if at least one event matches, False otherwise
         """
         return self.limit(1).count() > 0
+        
+    def __repr__(self):
+        return f"EventQueryBuilder(query='{self._query}', limit={self._max_results}, calendar_id='{self._calendar_id}')"
