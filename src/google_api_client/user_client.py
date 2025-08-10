@@ -5,10 +5,25 @@ This module provides a clean, user-focused API where each user gets their own
 client instance with easy access to all Google services.
 """
 
-from typing import Optional, Dict, Any
-from .auth.auth import get_credentials_from_file, get_credentials_from_info
-from .auth.auth import get_gmail_service, get_calendar_service, get_tasks_service
+import os
+
+from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
+from google_auth_oauthlib.flow import InstalledAppFlow
+from googleapiclient.discovery import build
+
+from .services.gmail.api_service import GmailApiService
+from .services.calendar.client import CalendarService
+from .services.tasks.client import TasksService
+
+
+SCOPES = [
+    'https://www.googleapis.com/auth/calendar',
+    'https://mail.google.com/',
+    'https://www.googleapis.com/auth/tasks'
+]
+
+CREDENTIALS_PATH = r"C:\Users\dagms\Projects\Credentials\credentials.json"
 
 
 class UserClient:
@@ -38,242 +53,140 @@ class UserClient:
             credentials: Google OAuth2 credentials for this user
         """
         self._credentials = credentials
-        self._gmail_api_service = None
-        self._calendar_api_service = None
-        self._tasks_api_service = None
+
         self._gmail_service = None
         self._calendar_service = None
         self._tasks_service = None
-        
-        # Create service proxies
-        self.gmail = GmailServiceProxy(self)
-        self.calendar = CalendarServiceProxy(self)
-        self.tasks = TasksServiceProxy(self)
-    
+
+        self._gmail = None
+        self._calendar = None
+        self._tasks = None
+
+
     @classmethod
-    def from_file(cls, credentials_path: str = None, token_path: str = None, scopes: list = None) -> "UserClient":
+    def from_credentials_info(
+            cls,
+            app_credentials: dict,
+            user_token_data: dict = None,
+            scopes: list = None,
+            port: int = 8080
+    ) -> tuple["UserClient", dict]:
         """
-        Create a UserClient from credential files (single user scenario).
-        
-        Args:
-            credentials_path: Path to credentials.json file
-            token_path: Path to token.json file  
-            scopes: List of OAuth scopes to request
-            
-        Returns:
-            UserClient instance
-        """
-        credentials = get_credentials_from_file(credentials_path, token_path, scopes)
-        return cls(credentials)
-    
-    @classmethod
-    def from_credentials_info(cls, app_credentials: dict, user_token_data: dict = None, scopes: list = None) -> "UserClient":
-        """
-        Create a UserClient from credential data (multi-user scenario).
-        
+        Create a UserClient from credential data.
+
         Args:
             app_credentials: OAuth client configuration dict
             user_token_data: Previously stored user token data dict
             scopes: List of OAuth scopes to request
-            
-        Returns:
-            UserClient instance
-        """
-        credentials, _ = get_credentials_from_info(app_credentials, user_token_data, scopes)
-        return cls(credentials)
-    
-    def get_gmail_service(self):
-        """Get or create Gmail API service for this user."""
-        if self._gmail_api_service is None:
-            self._gmail_api_service = get_gmail_service(self._credentials)
-        return self._gmail_api_service
-    
-    def get_calendar_service(self):
-        """Get or create Calendar API service for this user."""
-        if self._calendar_api_service is None:
-            self._calendar_api_service = get_calendar_service(self._credentials)
-        return self._calendar_api_service
-    
-    def get_tasks_service(self):
-        """Get or create Tasks API service for this user."""
-        if self._tasks_api_service is None:
-            self._tasks_api_service = get_tasks_service(self._credentials)
-        return self._tasks_api_service
 
-    def get_gmail_service_layer(self):
-        """Get or create Gmail service layer for this user."""
+        Returns:
+            tuple: (UserClient instance, updated_token_data_to_store)
+        """
+        scopes = scopes or SCOPES
+        creds = None
+
+        # Try to load existing credentials from memory
+        if user_token_data:
+            creds = Credentials.from_authorized_user_info(user_token_data, scopes)
+
+        if not creds or not creds.valid:
+            if creds and creds.expired and creds.refresh_token:
+                creds.refresh(Request())
+            else:
+                flow = InstalledAppFlow.from_client_config(app_credentials, scopes)
+                creds = flow.run_local_server(port=port)
+
+        # Return credentials and token data to store
+        token_data_to_store = {
+            'token': creds.token,
+            'refresh_token': creds.refresh_token,
+            'token_uri': creds.token_uri,
+            'client_id': creds.client_id,
+            'client_secret': creds.client_secret,
+            'scopes': creds.scopes
+        }
+
+        return cls(creds), token_data_to_store
+
+    @classmethod
+    def from_file(
+            cls,
+            token_path: str = None,
+            credentials_path: str = None,
+            scopes: list = None,
+            port: int = 8080
+    ) -> "UserClient":
+        """
+        Create a UserClient from credential data.
+
+        Args:
+            token_path: Path to previously stored user's token file (contents of token.json)
+            credentials_path: Path to OAuth client's credential file (contents of credentials.json)
+            scopes: List of OAuth scopes to request
+
+        Returns:
+            A UserClient instance
+
+        """
+
+        credentials_path = credentials_path or CREDENTIALS_PATH
+        scopes = scopes or SCOPES
+
+        creds = None
+
+        if os.path.exists(token_path):
+            creds = Credentials.from_authorized_user_file(token_path, scopes)
+
+        if not creds or not creds.valid:
+            if creds and creds.expired and creds.refresh_token:
+                creds.refresh(Request())
+            else:
+                flow = InstalledAppFlow.from_client_secrets_file(
+                    credentials_path, scopes
+                )
+                creds = flow.run_local_server(port=port)
+
+            with open(token_path, "w") as token:
+                token.write(creds.to_json())
+
+        return cls(creds)
+
+    def _get_gmail_service(self):
+        """Get or create Gmail API service for this user."""
         if self._gmail_service is None:
-            from .clients.gmail.client import GmailService
-            self._gmail_service = GmailService(self.get_gmail_service(), self)
+            self._gmail_service = build("gmail", "v1", credentials=self._credentials)
         return self._gmail_service
     
-    def get_calendar_service_layer(self):
-        """Get or create Calendar service layer for this user."""
+    def _get_calendar_service(self):
+        """Get or create Calendar API service for this user."""
         if self._calendar_service is None:
-            from .clients.calendar.client import CalendarService
-            self._calendar_service = CalendarService(self.get_calendar_service(), self)
+            self._calendar_service = build("calendar", "v3", credentials=self._credentials)
         return self._calendar_service
     
-    def get_tasks_service_layer(self):
-        """Get or create Tasks service layer for this user."""
+    def _get_tasks_service(self):
+        """Get or create Tasks API service for this user."""
         if self._tasks_service is None:
-            from .clients.tasks.client import TasksService
-            self._tasks_service = TasksService(self.get_tasks_service(), self)
+            self._tasks_service = build("tasks", "v1", credentials=self._credentials)
         return self._tasks_service
 
+    @property
+    def gmail(self):
+        """Gmail service layer for this user."""
+        if self._gmail is None:
+            self._gmail = GmailApiService(self._get_gmail_service())
+        return self._gmail
 
-class GmailServiceProxy:
-    """Proxy that provides clean access to Gmail operations."""
-    
-    def __init__(self, user_client: UserClient):
-        self._user_client = user_client
-    
-    def list_emails(self, max_results: Optional[int] = 30, **kwargs):
-        """List emails for this user."""
-        gmail_service = self._user_client.get_gmail_service_layer()
-        return gmail_service.list_emails(max_results=max_results, **kwargs)
-    
-    def get_email(self, message_id: str):
-        """Get specific email for this user."""
-        gmail_service = self._user_client.get_gmail_service_layer()
-        return gmail_service.get_email(message_id)
-    
-    def send_email(self, to: list, subject: str = None, **kwargs):
-        """Send email as this user."""
-        gmail_service = self._user_client.get_gmail_service_layer()
-        return gmail_service.send_email(to, subject=subject, **kwargs)
-    
-    def list_labels(self):
-        """List Gmail labels for this user."""
-        gmail_service = self._user_client.get_gmail_service_layer()
-        return gmail_service.list_labels()
-    
-    def create_label(self, name: str):
-        """Create Gmail label for this user."""
-        gmail_service = self._user_client.get_gmail_service_layer()
-        return gmail_service.create_label(name)
-    
-    def get_label(self, label_id: str):
-        """Get specific Gmail label for this user."""
-        gmail_service = self._user_client.get_gmail_service_layer()
-        return gmail_service.get_label(label_id)
-    
-    def _delete_label(self, label_id: str) -> bool:
-        """Delete Gmail label for this user."""
-        gmail_service = self._user_client.get_gmail_service_layer()
-        return gmail_service._delete_label(label_id)
-    
-    def _update_label(self, label_id: str, new_name: str):
-        """Update Gmail label for this user."""
-        gmail_service = self._user_client.get_gmail_service_layer()
-        return gmail_service._update_label(label_id, new_name)
-    
-    def query(self):
-        """Create email query builder for this user."""
-        gmail_service = self._user_client.get_gmail_service_layer()
-        return gmail_service.query()
+    @property
+    def calendar(self):
+        """Calendar service layer for this user."""
+        if self._calendar is None:
+            self._calendar = CalendarService(self._get_calendar_service(), self)
+        return self._calendar
 
+    @property
+    def tasks(self):
+        """Tasks service layer for this user."""
+        if self._tasks is None:
+            self._tasks = TasksService(self._get_tasks_service(), self)
+        return self._tasks
 
-class CalendarServiceProxy:
-    """Proxy that provides clean access to Calendar operations."""
-    
-    def __init__(self, user_client: UserClient):
-        self._user_client = user_client
-    
-    def list_events(self, number_of_results: Optional[int] = 100, **kwargs):
-        """List calendar events for this user."""
-        calendar_service = self._user_client.get_calendar_service_layer()
-        return calendar_service.list_events(number_of_results=number_of_results, **kwargs)
-    
-    def get_event(self, event_id: str):
-        """Get specific calendar event for this user."""
-        calendar_service = self._user_client.get_calendar_service_layer()
-        return calendar_service.get_event(event_id)
-    
-    def create_event(self, start, end, summary: str = None, **kwargs):
-        """Create calendar event for this user."""
-        calendar_service = self._user_client.get_calendar_service_layer()
-        return calendar_service.create_event(start, end, summary=summary, **kwargs)
-    
-    def _update_event(self, event_id: str, event):
-        """Update calendar event for this user."""
-        calendar_service = self._user_client.get_calendar_service_layer()
-        return calendar_service._update_event(event_id, event)
-    
-    def _delete_event(self, event_id: str, delete_all_recurrence: bool = False):
-        """Delete calendar event for this user."""
-        calendar_service = self._user_client.get_calendar_service_layer()
-        return calendar_service._delete_event(event_id, delete_all_recurrence)
-    
-    def query(self):
-        """Create event query builder for this user."""
-        calendar_service = self._user_client.get_calendar_service_layer()
-        return calendar_service.query()
-
-
-class TasksServiceProxy:
-    """Proxy that provides clean access to Tasks operations."""
-    
-    def __init__(self, user_client: UserClient):
-        self._user_client = user_client
-    
-    def list_tasks(self, task_list_id: str = '@default', max_results: Optional[int] = 100):
-        """List tasks for this user."""
-        tasks_service = self._user_client.get_tasks_service_layer()
-        return tasks_service.list_tasks(task_list_id, max_results)
-    
-    def get_task(self, task_list_id: str, task_id: str):
-        """Get specific task for this user."""
-        tasks_service = self._user_client.get_tasks_service_layer()
-        return tasks_service.get_task(task_list_id, task_id)
-    
-    def create_task(self, title: str, task_list_id: str = '@default', **kwargs):
-        """Create task for this user."""
-        tasks_service = self._user_client.get_tasks_service_layer()
-        return tasks_service.create_task(title, task_list_id, **kwargs)
-    
-    def list_task_lists(self):
-        """List task lists for this user."""
-        tasks_service = self._user_client.get_tasks_service_layer()
-        return tasks_service.list_task_lists()
-    
-    def get_task_list(self, task_list_id: str):
-        """Get specific task list for this user."""
-        tasks_service = self._user_client.get_tasks_service_layer()
-        return tasks_service.get_task_list(task_list_id)
-    
-    def create_task_list(self, title: str):
-        """Create task list for this user."""
-        tasks_service = self._user_client.get_tasks_service_layer()
-        return tasks_service.create_task_list(title)
-    
-    def _update_task(self, task_list_id: str, task_id: str, title: str = None, notes: str = None, 
-                    status: str = None, completed = None, due = None):
-        """Update task for this user."""
-        tasks_service = self._user_client.get_tasks_service_layer()
-        return tasks_service._update_task(task_list_id, task_id, title, notes, status, completed, due)
-    
-    def _delete_task(self, task_list_id: str, task_id: str) -> bool:
-        """Delete task for this user."""
-        tasks_service = self._user_client.get_tasks_service_layer()
-        return tasks_service._delete_task(task_list_id, task_id)
-    
-    def _move_task(self, task_list_id: str, task_id: str, parent = None, previous = None):
-        """Move task for this user."""
-        tasks_service = self._user_client.get_tasks_service_layer()
-        return tasks_service._move_task(task_list_id, task_id, parent, previous)
-    
-    def _update_task_list(self, task_list_id: str, title: str):
-        """Update task list for this user."""
-        tasks_service = self._user_client.get_tasks_service_layer()
-        return tasks_service._update_task_list(task_list_id, title)
-    
-    def _delete_task_list(self, task_list_id: str) -> bool:
-        """Delete task list for this user."""
-        tasks_service = self._user_client.get_tasks_service_layer()
-        return tasks_service._delete_task_list(task_list_id)
-    
-    def query(self):
-        """Create task query builder for this user."""
-        tasks_service = self._user_client.get_tasks_service_layer()
-        return tasks_service.query()
