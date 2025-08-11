@@ -47,15 +47,18 @@ class EmailQueryBuilder:
         self._max_results = count
         return self
         
-    def search(self, query: str) -> "EmailQueryBuilder":
+    def search(self, query: str, exact_match: bool = False) -> "EmailQueryBuilder":
         """
         Add a search term to the query.
         Args:
             query: Search term to add
+            exact_match: Boolean indicating whether to return exact matches only
         Returns:
             Self for method chaining
         """
         if query:
+            if exact_match:
+                query = f'"{query}"'
             self._query_parts.append(query)
         return self
         
