@@ -7,7 +7,7 @@ from googleapiclient.errors import HttpError
 from ...utils.log_sanitizer import sanitize_for_logging
 import logging
 
-from .types import EmailMessage, EmailAttachment, Label
+from .types import EmailMessage, EmailAttachment, Label, EmailThread
 from .query_builder import EmailQueryBuilder
 from . import utils
 from .constants import DEFAULT_MAX_RESULTS, MAX_RESULTS_LIMIT
@@ -548,3 +548,172 @@ class GmailApiService:
         except Exception as e:
             logger.error("Error updating label: %s", e)
             raise
+
+    def list_threads(
+            self,
+            max_results: Optional[int] = DEFAULT_MAX_RESULTS,
+            query: Optional[str] = None,
+            include_spam_trash: bool = False,
+            label_ids: Optional[List[str]] = None
+    ) -> List[EmailThread]:
+        """
+        Fetches a list of threads from Gmail with optional filtering.
+
+        Args:
+            max_results: Maximum number of threads to retrieve. Defaults to 30.
+            query: Gmail search query string (same syntax as Gmail search).
+            include_spam_trash: Whether to include threads from spam and trash.
+            label_ids: List of label IDs to filter by.
+
+        Returns:
+            A list of EmailThread objects representing the threads found.
+        """
+        # Input validation
+        if max_results and (max_results < 1 or max_results > MAX_RESULTS_LIMIT):
+            raise ValueError(f"max_results must be between 1 and {MAX_RESULTS_LIMIT}")
+
+        sanitized = sanitize_for_logging(query=query, max_results=max_results,
+                                         include_spam_trash=include_spam_trash, label_ids=label_ids)
+        logger.info("Fetching threads with max_results=%s, query=%s, include_spam_trash=%s, label_ids=%s",
+                    sanitized['max_results'], sanitized['query'], sanitized['include_spam_trash'],
+                    sanitized['label_ids'])
+
+        # Get list of thread IDs
+        request_params = {
+            'userId': 'me',
+            'maxResults': max_results,
+            'includeSpamTrash': include_spam_trash
+        }
+
+        if query:
+            request_params['q'] = query
+        if label_ids:
+            request_params['labelIds'] = label_ids
+
+        try:
+            result = self._service.users().threads().list(**request_params).execute()
+            threads = result.get('threads', [])
+
+            logger.info("Found %d thread IDs", len(threads))
+
+            # Fetch full thread details
+            email_threads = []
+            for thread in threads:
+                try:
+                    email_threads.append(self.get_thread(thread['id']))
+                except Exception as e:
+                    logger.warning("Failed to fetch thread: %s", e)
+
+            logger.info("Successfully fetched %d complete threads", len(email_threads))
+            return email_threads
+
+        except Exception as e:
+            logger.error("An error occurred while fetching threads: %s", e)
+            raise
+
+    def get_thread(self, thread_id: str) -> EmailThread:
+        """
+        Retrieves a specific thread from Gmail using its unique identifier.
+
+        Args:
+            thread_id: The unique identifier of the thread to be retrieved.
+
+        Returns:
+            An EmailThread object representing the thread with all its messages.
+        """
+        logger.info("Retrieving thread with ID: %s", thread_id)
+
+        try:
+            gmail_thread = self._service.users().threads().get(
+                userId='me',
+                id=thread_id,
+                format='full'
+            ).execute()
+            logger.info("Thread retrieved successfully")
+            return utils.from_gmail_thread(gmail_thread)
+        except Exception as e:
+            logger.error("Error retrieving thread: %s", e)
+            raise
+
+    def delete_thread(self, thread: EmailThread, permanent: bool = False) -> bool:
+        """
+        Deletes a thread (moves to trash or permanently deletes).
+
+        Args:
+            thread: The EmailThread object being deleted
+            permanent: If True, permanently deletes the thread. If False, moves to trash.
+
+        Returns:
+            True if the operation was successful, False otherwise.
+        """
+        logger.info("Deleting thread: %s, permanent=%s", thread.thread_id, permanent)
+
+        try:
+            if permanent:
+                self._service.users().threads().delete(userId='me', id=thread.thread_id).execute()
+                logger.info("Thread permanently deleted")
+            else:
+                self._service.users().threads().trash(userId='me', id=thread.thread_id).execute()
+                logger.info("Thread moved to trash")
+            return True
+        except Exception as e:
+            logger.error("Error deleting thread: %s", e)
+            return False
+
+    def modify_thread_labels(self, thread: EmailThread, add_labels: Optional[List[str]] = None, 
+                           remove_labels: Optional[List[str]] = None) -> bool:
+        """
+        Modifies labels applied to a thread.
+
+        Args:
+            thread: The EmailThread object to modify labels for
+            add_labels: List of label IDs to add to the thread
+            remove_labels: List of label IDs to remove from the thread
+
+        Returns:
+            True if the operation was successful, False otherwise.
+        """
+        logger.info("Modifying labels for thread: %s", thread.thread_id)
+
+        if not add_labels and not remove_labels:
+            logger.warning("No labels specified for modification")
+            return True
+
+        try:
+            body = {}
+            if add_labels:
+                body['addLabelIds'] = add_labels
+            if remove_labels:
+                body['removeLabelIds'] = remove_labels
+
+            self._service.users().threads().modify(
+                userId='me',
+                id=thread.thread_id,
+                body=body
+            ).execute()
+            
+            logger.info("Thread labels modified successfully")
+            return True
+        except Exception as e:
+            logger.error("Error modifying thread labels: %s", e)
+            return False
+
+    def untrash_thread(self, thread: EmailThread) -> bool:
+        """
+        Removes a thread from trash.
+
+        Args:
+            thread: The EmailThread object to untrash
+
+        Returns:
+            True if the operation was successful, False otherwise.
+        """
+        logger.info("Untrashing thread: %s", thread.thread_id)
+
+        try:
+            self._service.users().threads().untrash(userId='me', id=thread.thread_id).execute()
+            logger.info("Thread untrashed successfully")
+            return True
+        except Exception as e:
+            logger.error("Error untrashing thread: %s", e)
+            return False

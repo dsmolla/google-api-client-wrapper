@@ -4,6 +4,7 @@ import logging
 
 if TYPE_CHECKING:
     from .api_service import EmailMessage
+    from .types import EmailThread
 
 logger = logging.getLogger(__name__)
 
@@ -381,6 +382,26 @@ class EmailQueryBuilder:
             True if at least one email matches, False otherwise
         """
         return self.first() is not None
+
+    def get_threads(self) -> List["EmailThread"]:
+        """
+        Execute the query and return threads instead of individual messages.
+        Returns:
+            List of EmailThread objects matching the query
+        """
+        query_string = " ".join(self._query_parts) if self._query_parts else None
+        
+        logger.info("Executing thread query: %s", query_string)
+        
+        # Use the service layer implementation to get threads
+        threads = self._api_service.list_threads(
+            max_results=self._max_results,
+            query=query_string,
+            include_spam_trash=self._include_spam_trash,
+            label_ids=self._label_ids if self._label_ids else None
+        )
+
+        return threads
         
     def __repr__(self):
         query_string = " ".join(self._query_parts) if self._query_parts else "None"

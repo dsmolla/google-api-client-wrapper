@@ -9,7 +9,7 @@ import html
 from typing import Optional, List
 import base64
 import re
-from .types import EmailMessage, EmailAttachment, EmailAddress
+from .types import EmailMessage, EmailAttachment, EmailAddress, EmailThread
 from ...utils.datetime import convert_datetime_to_local_timezone
 import logging
 from .constants import MAX_SUBJECT_LENGTH, MAX_BODY_LENGTH
@@ -320,3 +320,33 @@ def create_message(
     raw_message = base64.urlsafe_b64encode(message.as_bytes()).decode()
 
     return raw_message
+
+
+def from_gmail_thread(gmail_thread: dict) -> EmailThread:
+    """
+    Creates an EmailThread instance from a Gmail API thread response.
+    Args:
+        gmail_thread: A dictionary containing thread data from Gmail API.
+
+    Returns:
+        An EmailThread instance populated with the data from the dictionary.
+    """
+    thread_id = gmail_thread.get('id')
+    snippet = html.unescape(gmail_thread.get('snippet', '')).strip()
+    history_id = gmail_thread.get('historyId')
+    
+    # Convert messages to EmailMessage objects
+    messages = []
+    for gmail_message in gmail_thread.get('messages', []):
+        try:
+            email_message = from_gmail_message(gmail_message)
+            messages.append(email_message)
+        except Exception as e:
+            logger.warning("Failed to parse message in thread %s: %s", thread_id, e)
+    
+    return EmailThread(
+        thread_id=thread_id,
+        messages=messages,
+        snippet=snippet,
+        history_id=history_id
+    )

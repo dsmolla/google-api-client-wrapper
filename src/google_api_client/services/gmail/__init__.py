@@ -2,7 +2,7 @@
 
 from .api_service import GmailApiService
 from .query_builder import EmailQueryBuilder
-from .types import EmailMessage, EmailAddress, EmailAttachment, Label
+from .types import EmailMessage, EmailAddress, EmailAttachment, Label, EmailThread
 
 __all__ = [
     # Sync classes
@@ -10,6 +10,7 @@ __all__ = [
     "EmailAddress", 
     "EmailAttachment",
     "Label",
+    "EmailThread",
     "EmailQueryBuilder",
 
 ]

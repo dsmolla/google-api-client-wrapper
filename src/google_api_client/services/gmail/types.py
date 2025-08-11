@@ -94,6 +94,73 @@ class Label:
 
 
 @dataclass
+class EmailThread:
+    """
+    Represents a Gmail thread containing multiple related messages.
+    Args:
+        thread_id: Unique identifier for the thread.
+        messages: List of EmailMessage objects in this thread.
+        snippet: A short snippet of the thread content.
+        history_id: The history ID of the thread.
+    """
+    thread_id: Optional[str] = None
+    messages: List["EmailMessage"] = field(default_factory=list)
+    snippet: Optional[str] = None
+    history_id: Optional[str] = None
+
+    def get_latest_message(self) -> Optional["EmailMessage"]:
+        """
+        Gets the most recent message in the thread.
+        Returns:
+            The latest EmailMessage or None if no messages exist.
+        """
+        if not self.messages:
+            return None
+        return max(self.messages, key=lambda msg: msg.date_time or datetime.min)
+
+    def get_unread_count(self) -> int:
+        """
+        Gets the number of unread messages in the thread.
+        Returns:
+            Count of unread messages.
+        """
+        return sum(1 for msg in self.messages if not msg.is_read)
+
+    def has_unread_messages(self) -> bool:
+        """
+        Checks if the thread has any unread messages.
+        Returns:
+            True if there are unread messages, False otherwise.
+        """
+        return any(not msg.is_read for msg in self.messages)
+
+    def get_participants(self) -> List[EmailAddress]:
+        """
+        Gets all unique participants in the thread.
+        Returns:
+            List of unique EmailAddress objects from all messages.
+        """
+        participants = set()
+        for message in self.messages:
+            if message.sender:
+                participants.add((message.sender.email, message.sender.name))
+            for recipient in message.recipients + message.cc_recipients + message.bcc_recipients:
+                participants.add((recipient.email, recipient.name))
+        
+        return [EmailAddress(email=email, name=name) for email, name in participants]
+
+    def __repr__(self):
+        latest = self.get_latest_message()
+        return (
+            f"Thread ID: {self.thread_id}\n"
+            f"Messages: {len(self.messages)}\n"
+            f"Unread: {self.get_unread_count()}\n"
+            f"Latest: {latest.subject if latest else 'No messages'}\n"
+            f"Snippet: {self.snippet}\n"
+        )
+
+
+@dataclass
 class EmailMessage:
     """
     Represents a Gmail message with various attributes.
