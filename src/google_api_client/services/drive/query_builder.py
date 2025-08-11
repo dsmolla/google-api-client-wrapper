@@ -6,7 +6,7 @@ from .constants import FOLDER_MIME_TYPE, MAX_RESULTS_LIMIT, DEFAULT_MAX_RESULTS
 from ...utils.datetime import convert_datetime_to_iso
 
 if TYPE_CHECKING:
-    from .api_service import DriveFile, DriveFolder
+    from .api_service import DriveItem, DriveFolder
 
 logger = logging.getLogger(__name__)
 
@@ -55,7 +55,7 @@ class DriveQueryBuilder:
             Self for method chaining
         """
         if query:
-            escaped_query = query.replace("'", "\\'")
+            escaped_query = query.replace("'", "\'\'")
             self._query_parts.append(f"fullText contains '{escaped_query}'")
         return self
         
@@ -68,7 +68,7 @@ class DriveQueryBuilder:
             Self for method chaining
         """
         if text:
-            escaped_text = text.replace("'", "\\'")
+            escaped_text = text.replace("'", "\'\'")
             self._query_parts.append(f"name contains '{escaped_text}'")
         return self
         
@@ -81,7 +81,7 @@ class DriveQueryBuilder:
             Self for method chaining
         """
         if name:
-            escaped_name = name.replace("'", "\\'")
+            escaped_name = name.replace("'", "\'\'")
             self._query_parts.append(f"name = '{escaped_name}'")
         return self
         
@@ -169,7 +169,7 @@ class DriveQueryBuilder:
             Self for method chaining
         """
         if name:
-            escaped_name = name.replace("'", "\\'")
+            escaped_name = name.replace("'", "\'\'")
             self._query_parts.append(f"mimeType = '{FOLDER_MIME_TYPE}' and name = '{escaped_name}'")
         return self
 
@@ -182,7 +182,7 @@ class DriveQueryBuilder:
             Self for method chaining
         """
         if text:
-            escaped_text = text.replace("'", "\\'")
+            escaped_text = text.replace("'", "\'\'")
             self._query_parts.append(f"mimeType = '{FOLDER_MIME_TYPE}' and name contains '{escaped_text}'")
         return self
         
@@ -371,11 +371,11 @@ class DriveQueryBuilder:
         
         return " and ".join(f"({part})" for part in self._query_parts)
         
-    def execute(self) -> List[Union["DriveFile", "DriveFolder"]]:
+    def execute(self) -> List["DriveItem"]:
         """
         Execute the query and return results.
         Returns:
-            List of DriveFile and DriveFolder objects matching the query
+            List of DriveItem objects matching the query
         """
         query = self._build_query()
         

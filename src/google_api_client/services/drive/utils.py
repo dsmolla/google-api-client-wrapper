@@ -3,7 +3,7 @@ from typing import Optional, Dict, Any, List, Union
 import mimetypes
 import os
 
-from .types import DriveFile, DriveFolder, Permission, DriveComment
+from .types import DriveFile, DriveFolder, Permission
 from .constants import FOLDER_MIME_TYPE, GOOGLE_DOCS_MIME_TYPE, MICROSOFT_WORD_MIME_TYPE, GOOGLE_SHEETS_MIME_TYPE, \
     MICROSOFT_EXCEL_MIME_TYPE, GOOGLE_SLIDES_MIME_TYPE, MICROSOFT_POWERPOINT_MIME_TYPE
 
@@ -15,7 +15,7 @@ def convert_mime_type_to_downloadable(mime_type: str) -> str:
         GOOGLE_SLIDES_MIME_TYPE: MICROSOFT_POWERPOINT_MIME_TYPE
     }
 
-    return mime_type_conversion[mime_type]
+    return mime_type_conversion.get(mime_type)
 
 def convert_api_file_to_drive_file(api_file: Dict[str, Any]) -> DriveFile:
     """
@@ -57,13 +57,13 @@ def convert_api_file_to_drive_file(api_file: Dict[str, Any]) -> DriveFile:
                  for owner in api_file["owners"]]
     
     return DriveFile(
-        file_id=api_file.get("id"),
+        item_id=api_file.get("id"),
         name=api_file.get("name"),
         mime_type=api_file.get("mimeType"),
         size=size,
         created_time=created_time,
         modified_time=modified_time,
-        parents=api_file.get("parents", []),
+        parent_ids=api_file.get("parents", []),
         web_view_link=api_file.get("webViewLink"),
         web_content_link=api_file.get("webContentLink"),
         owners=owners,
@@ -110,11 +110,11 @@ def convert_api_file_to_drive_folder(api_file: Dict[str, Any]) -> DriveFolder:
                  for owner in api_file["owners"]]
     
     return DriveFolder(
-        folder_id=api_file.get("id"),
+        item_id=api_file.get("id"),
         name=api_file.get("name"),
         created_time=created_time,
         modified_time=modified_time,
-        parents=api_file.get("parents", []),
+        parent_ids=api_file.get("parents", []),
         web_view_link=api_file.get("webViewLink"),
         owners=owners,
         permissions=permissions,
@@ -164,43 +164,6 @@ def convert_api_permission_to_permission(api_permission: Dict[str, Any]) -> Perm
     )
 
 
-def convert_api_comment_to_comment(api_comment: Dict[str, Any]) -> DriveComment:
-    """
-    Convert a comment resource from the Drive API to a DriveComment object.
-    
-    Args:
-        api_comment: Comment resource dictionary from Drive API
-        
-    Returns:
-        DriveComment object
-    """
-    # Parse datetime fields
-    created_time = None
-    if api_comment.get("createdTime"):
-        created_time = datetime.fromisoformat(api_comment["createdTime"].replace("Z", "+00:00"))
-    
-    modified_time = None
-    if api_comment.get("modifiedTime"):
-        modified_time = datetime.fromisoformat(api_comment["modifiedTime"].replace("Z", "+00:00"))
-    
-    # Extract author information
-    author = None
-    if api_comment.get("author"):
-        author_data = api_comment["author"]
-        author = author_data.get("displayName") or author_data.get("emailAddress") or "Unknown"
-    
-    return DriveComment(
-        comment_id=api_comment.get("id"),
-        content=api_comment.get("content"),
-        author=author,
-        created_time=created_time,
-        modified_time=modified_time,
-        deleted=api_comment.get("deleted", False),
-        resolved=api_comment.get("resolved", False),
-        anchor=api_comment.get("anchor"),
-    )
-
-
 def guess_mime_type(file_path: str) -> str:
     """
     Guess the MIME type of a file based on its extension.
@@ -213,6 +176,20 @@ def guess_mime_type(file_path: str) -> str:
     """
     mime_type, _ = mimetypes.guess_type(file_path)
     return mime_type or "application/octet-stream"
+
+def guess_extension(mime_type: str) -> Optional[str]:
+    """
+    Guess the extension of a file based on its MIME type.
+    Args:
+        mime_type: The MIME type of the file
+
+    Returns:
+        Extension string. None if MIME type is unknown
+    """
+    if mime_type in [GOOGLE_DOCS_MIME_TYPE, GOOGLE_SHEETS_MIME_TYPE, GOOGLE_SLIDES_MIME_TYPE]:
+        return mimetypes.guess_extension(convert_mime_type_to_downloadable(mime_type))
+
+    return mimetypes.guess_extension(mime_type)
 
 
 def build_file_metadata(

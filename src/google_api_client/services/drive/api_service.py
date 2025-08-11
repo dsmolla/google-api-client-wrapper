@@ -6,9 +6,9 @@ import logging
 from googleapiclient.errors import HttpError
 from googleapiclient.http import MediaFileUpload, MediaIoBaseUpload, MediaIoBaseDownload
 
-from .utils import convert_mime_type_to_downloadable
+from .utils import convert_mime_type_to_downloadable, guess_mime_type, guess_extension
 from ...utils.log_sanitizer import sanitize_for_logging
-from .types import DriveFile, DriveFolder, Permission, DriveComment
+from .types import DriveFile, DriveFolder, Permission, DriveItem
 from .query_builder import DriveQueryBuilder
 from . import utils
 from .constants import (
@@ -62,7 +62,7 @@ class DriveApiService:
         order_by: Optional[str] = None,
         fields: Optional[str] = None,
         page_token: Optional[str] = None
-    ) -> List[Union[DriveFile, DriveFolder]]:
+    ) -> List[DriveItem]:
         """
         List files and folders in Drive.
         
@@ -120,7 +120,7 @@ class DriveApiService:
             logger.error(error_msg)
             raise DriveError(error_msg)
 
-    def get(self, item_id: str, fields: Optional[str] = None) -> Union[DriveFile, DriveFolder]:
+    def get(self, item_id: str, fields: Optional[str] = None) -> DriveItem:
         """
         Get a file or folder by its id.
         
@@ -129,7 +129,7 @@ class DriveApiService:
             fields: Fields to include in response
             
         Returns:
-            DriveFile object
+            DriveFile or DriveFolder object
             
         Raises:
             FileNotFoundError: If the file is not found
@@ -305,13 +305,14 @@ class DriveApiService:
             logger.error(error_msg)
             raise UploadFailedError(error_msg)
 
-    def download_file(self, file: DriveFile, local_path: str) -> str:
+    def download_file(self, file: DriveFile, dest_directory: str, file_name: str = None) -> str:
         """
         Download a file from Drive to local disk.
         
         Args:
             file: DriveFile object to download
-            local_path: Local path where to save the file
+            dest_directory: Local directory where to save the file
+            file_name: Optional file name with extension
             
         Returns:
             Local path of the downloaded file
@@ -321,15 +322,20 @@ class DriveApiService:
             DownloadFailedError: If the download fails
             DriveError: If the API request fails
         """
-        logger.debug(f"Downloading file {file.file_id} to {local_path}")
+
+        logger.debug(f"Downloading file {file.file_id} to {dest_directory}")
 
         # Create directory if it doesn't exist
-        os.makedirs(os.path.dirname(local_path), exist_ok=True)
+        os.makedirs(os.path.dirname(dest_directory), exist_ok=True)
+        file_path = ""
+        if not file_name:
+            file_name = file.name + guess_extension(file.mime_type)
+        file_path = os.path.join(dest_directory, file_name)
 
-        with open(local_path, "wb") as f:
+        with open(file_path, "wb") as f:
             f.write(self.download_file_content(file))
 
-        return local_path
+        return dest_directory
 
     def download_file_content(self, file: DriveFile) -> bytes:
         """
@@ -433,12 +439,12 @@ class DriveApiService:
             logger.error(error_msg)
             raise DriveError(error_msg)
 
-    def delete(self, item: Union[DriveFile, DriveFolder]) -> bool:
+    def delete(self, item: DriveItem) -> bool:
         """
         Delete a file or folder from Drive.
         
         Args:
-            item: DriveFile or DriveFolder object to delete
+            item: DriveItem object to delete
             
         Returns:
             True if deletion was successful
@@ -447,51 +453,49 @@ class DriveApiService:
             FileNotFoundError: If the item is not found
             DriveError: If the API request fails
         """
-        item_id = item.file_id if isinstance(item, DriveFile) else item.folder_id
         try:
-            logger.debug(f"Deleting item: {item_id}")
+            logger.debug(f"Deleting item: {item.item_id}")
             
-            self._service.files().delete(fileId=item_id).execute()
+            self._service.files().delete(fileId=item.item_id).execute()
             
-            logger.info(f"Successfully deleted item: {item_id}")
+            logger.info(f"Successfully deleted item: {item.item_id}")
             return True
 
         except HttpError as e:
             if e.resp.status == 404:
-                raise FileNotFoundError(f"Item not found: {item_id}")
+                raise FileNotFoundError(f"Item not found: {item.item_id}")
             elif e.resp.status == 403:
-                raise PermissionDeniedError(f"Permission denied deleting item: {item_id}")
+                raise PermissionDeniedError(f"Permission denied deleting item: {item.item_id}")
             else:
-                error_msg = f"Failed to delete item {item_id}: {e}"
+                error_msg = f"Failed to delete item {item.item_id}: {e}"
                 logger.error(error_msg)
                 raise DriveError(error_msg)
         except Exception as e:
-            error_msg = f"Unexpected error deleting item {item_id}: {e}"
+            error_msg = f"Unexpected error deleting item {item.item_id}: {e}"
             logger.error(error_msg)
             raise DriveError(error_msg)
 
     def copy(
         self,
-        item: Union[DriveFile, DriveFolder],
+        item: DriveItem,
         new_name: Optional[str] = None,
         parent_folder: Optional[DriveFolder] = None
-    ) -> Union[DriveFile, DriveFolder]:
+    ) -> DriveItem:
         """
         Copy a file or folder in Drive.
         
         Args:
-            item: DriveFile or DriveFolder object to copy
+            item: DriveItem object to copy
             new_name: Name for the copied item
             parent_folder: Parent DriveFolder for the copy
             
         Returns:
-            DriveFile or DriveFolder object for the copied item
+            DriveItem object for the copied item
             
         Raises:
             FileNotFoundError: If the source item is not found
             DriveError: If the API request fails
         """
-        item_id = item.file_id if isinstance(item, DriveFile) else item.folder_id
         try:
             metadata = {}
             if new_name:
@@ -499,58 +503,56 @@ class DriveApiService:
             if parent_folder:
                 metadata['parents'] = [parent_folder.folder_id]
             
-            logger.debug(f"Copying item: {item_id}")
+            logger.debug(f"Copying item: {item.item_id}")
             
             result = self._service.files().copy(
-                fileId=item_id,
+                fileId=item.item_id,
                 body=metadata,
                 fields=DEFAULT_FILE_FIELDS
             ).execute()
             
             copied_item = utils.convert_api_file_to_correct_type(result)
-            copied_id = copied_item.file_id if isinstance(copied_item, DriveFile) else copied_item.folder_id
-            logger.info(f"Successfully copied item: {copied_item.name} ({copied_id})")
+            logger.info(f"Successfully copied item: {copied_item.name} ({copied_item.item_id})")
             return copied_item
 
         except HttpError as e:
             if e.resp.status == 404:
-                raise FileNotFoundError(f"Item not found: {item_id}")
+                raise FileNotFoundError(f"Item not found: {item.item_id}")
             elif e.resp.status == 403:
-                raise PermissionDeniedError(f"Permission denied copying item: {item_id}")
+                raise PermissionDeniedError(f"Permission denied copying item: {item.item_id}")
             else:
-                error_msg = f"Failed to copy item {item_id}: {e}"
+                error_msg = f"Failed to copy item {item.item_id}: {e}"
                 logger.error(error_msg)
                 raise DriveError(error_msg)
         except Exception as e:
-            error_msg = f"Unexpected error copying item {item_id}: {e}"
+            error_msg = f"Unexpected error copying item {item.item_id}: {e}"
             logger.error(error_msg)
             raise DriveError(error_msg)
 
     def rename(
         self,
-        item: Union[DriveFile, DriveFolder],
+        item: DriveItem,
         name: Optional[str] = None,
-    ) -> Union[DriveFile, DriveFolder]:
+    ) -> DriveItem:
         """
         Rename a file or folder in Drive.
         
         Args:
-            item: DriveFile or DriveFolder object to update
+            item: DriveItem object to update
             name: New name for the item
             
         Returns:
-            Updated DriveFile or DriveFolder object
+            Updated DriveItem object
             
         Raises:
             FileNotFoundError: If the item is not found
             DriveError: If the API request fails
         """
-        item_id = item.file_id if isinstance(item, DriveFile) else item.folder_id
         try:
-            logger.debug(f"Updating item metadata: {item_id}")
+            logger.debug(f"Updating item metadata: {item.item_id}")
             
             result = self._service.files().update(
-                fileId=item_id,
+                fileId=item.item_id,
                 body={'name': utils.sanitize_filename(name)},
                 fields=DEFAULT_FILE_FIELDS
             ).execute()
@@ -561,21 +563,21 @@ class DriveApiService:
 
         except HttpError as e:
             if e.resp.status == 404:
-                raise FileNotFoundError(f"Item not found: {item_id}")
+                raise FileNotFoundError(f"Item not found: {item.item_id}")
             elif e.resp.status == 403:
-                raise PermissionDeniedError(f"Permission denied renaming item: {item_id}")
+                raise PermissionDeniedError(f"Permission denied renaming item: {item.item_id}")
             else:
-                error_msg = f"Failed to rename item {item_id}: {e}"
+                error_msg = f"Failed to rename item {item.item_id}: {e}"
                 logger.error(error_msg)
                 raise DriveError(error_msg)
         except Exception as e:
-            error_msg = f"Unexpected error renaming item {item_id}: {e}"
+            error_msg = f"Unexpected error renaming item {item.item_id}: {e}"
             logger.error(error_msg)
             raise DriveError(error_msg)
 
     def share(
         self,
-        item: Union[DriveFile, DriveFolder],
+        item: DriveItem,
         email: str,
         role: str = "reader",
         notify: bool = True,
@@ -585,7 +587,7 @@ class DriveApiService:
         Share a file or folder with a user.
         
         Args:
-            item: DriveFile or DriveFolder object to share
+            item: DriveItem object to share
             email: Email address of the user to share with
             role: Permission role (reader, writer, commenter)
             notify: Whether to send notification email
@@ -599,7 +601,6 @@ class DriveApiService:
             SharingError: If sharing fails
             DriveError: If the API request fails
         """
-        item_id = item.file_id if isinstance(item, DriveFile) else item.folder_id
         try:
             permission_metadata = {
                 'type': 'user',
@@ -607,10 +608,10 @@ class DriveApiService:
                 'emailAddress': email
             }
             
-            logger.debug(f"Sharing item {item_id} with {email} as {role}")
+            logger.debug(f"Sharing item {item.item_id} with {email} as {role}")
             
             result = self._service.permissions().create(
-                fileId=item_id,
+                fileId=item.item_id,
                 body=permission_metadata,
                 sendNotificationEmail=notify,
                 emailMessage=message,
@@ -623,24 +624,24 @@ class DriveApiService:
 
         except HttpError as e:
             if e.resp.status == 404:
-                raise FileNotFoundError(f"Item not found: {item_id}")
+                raise FileNotFoundError(f"Item not found: {item.item_id}")
             elif e.resp.status == 403:
-                raise PermissionDeniedError(f"Permission denied sharing item: {item_id}")
+                raise PermissionDeniedError(f"Permission denied sharing item: {item.item_id}")
             else:
-                error_msg = f"Failed to share item {item_id} with {email}: {e}"
+                error_msg = f"Failed to share item {item.item_id} with {email}: {e}"
                 logger.error(error_msg)
                 raise SharingError(error_msg)
         except Exception as e:
-            error_msg = f"Unexpected error sharing item {item_id} with {email}: {e}"
+            error_msg = f"Unexpected error sharing item {item.item_id} with {email}: {e}"
             logger.error(error_msg)
             raise SharingError(error_msg)
 
-    def get_permissions(self, item: Union[DriveFile, DriveFolder]) -> List[Permission]:
+    def get_permissions(self, item: DriveItem) -> List[Permission]:
         """
         Get all permissions for a file or folder.
         
         Args:
-            item: DriveFile or DriveFolder object to get permissions for
+            item: DriveItem object to get permissions for
             
         Returns:
             List of Permission objects
@@ -649,12 +650,11 @@ class DriveApiService:
             FileNotFoundError: If the item is not found
             DriveError: If the API request fails
         """
-        item_id = item.file_id if isinstance(item, DriveFile) else item.folder_id
         try:
-            logger.debug(f"Getting permissions for item: {item_id}")
+            logger.debug(f"Getting permissions for item: {item.item_id}")
             
             result = self._service.permissions().list(
-                fileId=item_id,
+                fileId=item.item_id,
                 fields='permissions(*)'
             ).execute()
             
@@ -662,29 +662,29 @@ class DriveApiService:
             permissions = [utils.convert_api_permission_to_permission(perm) 
                          for perm in permissions_data]
             
-            logger.info(f"Retrieved {len(permissions)} permissions for item {item_id}")
+            logger.info(f"Retrieved {len(permissions)} permissions for item {item.item_id}")
             return permissions
 
         except HttpError as e:
             if e.resp.status == 404:
-                raise FileNotFoundError(f"Item not found: {item_id}")
+                raise FileNotFoundError(f"Item not found: {item.item_id}")
             elif e.resp.status == 403:
-                raise PermissionDeniedError(f"Permission denied getting permissions: {item_id}")
+                raise PermissionDeniedError(f"Permission denied getting permissions: {item.item_id}")
             else:
-                error_msg = f"Failed to get permissions for item {item_id}: {e}"
+                error_msg = f"Failed to get permissions for item {item.item_id}: {e}"
                 logger.error(error_msg)
                 raise DriveError(error_msg)
         except Exception as e:
-            error_msg = f"Unexpected error getting permissions for item {item_id}: {e}"
+            error_msg = f"Unexpected error getting permissions for item {item.item_id}: {e}"
             logger.error(error_msg)
             raise DriveError(error_msg)
 
-    def remove_permission(self, item: Union[DriveFile, DriveFolder], permission_id: str) -> bool:
+    def remove_permission(self, item: DriveItem, permission_id: str) -> bool:
         """
         Remove a permission from a file or folder.
         
         Args:
-            item: DriveFile or DriveFolder object to remove permission from
+            item: DriveItem object to remove permission from
             permission_id: ID of the permission to remove
             
         Returns:
@@ -695,12 +695,11 @@ class DriveApiService:
             DrivePermissionError: If permission removal fails
             DriveError: If the API request fails
         """
-        item_id = item.file_id if isinstance(item, DriveFile) else item.folder_id
         try:
-            logger.debug(f"Removing permission {permission_id} from item {item_id}")
+            logger.debug(f"Removing permission {permission_id} from item {item.item_id}")
             
             self._service.permissions().delete(
-                fileId=item_id,
+                fileId=item.item_id,
                 permissionId=permission_id
             ).execute()
             
@@ -728,7 +727,7 @@ class DriveApiService:
         include_files: bool = True,
         max_results: Optional[int] = DEFAULT_MAX_RESULTS,
         order_by: Optional[str] = None
-    ) -> List[Union[DriveFile, DriveFolder]]:
+    ) -> List[DriveItem]:
         """
         List all contents (files and/or folders) within a specific folder.
         
@@ -773,43 +772,40 @@ class DriveApiService:
             logger.error(error_msg)
             raise DriveError(error_msg)
 
-    def move_to_folder(
+    def move(
         self,
-        item: Union[DriveFile, DriveFolder],
+        item: DriveItem,
         target_folder: DriveFolder,
         remove_from_current_parents: bool = True
-    ) -> Union[DriveFile, DriveFolder]:
+    ) -> DriveItem:
         """
         Move a file or folder to a different parent folder.
         
         Args:
-            item: DriveFile or DriveFolder object to move
+            item: DriveItem object to move
             target_folder: Target DriveFolder
             remove_from_current_parents: Whether to remove from current parents
             
         Returns:
-            Updated DriveFile or DriveFolder object
+            Updated DriveItem object
             
         Raises:
             FileNotFoundError: If the item or target folder is not found
             DriveError: If the API request fails
         """
-        # Get the appropriate ID and parents
-        item_id = item.file_id if isinstance(item, DriveFile) else item.folder_id
-        item_parents = item.parents
         try:
             # Prepare the update metadata
             update_params = {
-                'fileId': item_id,
+                'fileId': item.item_id,
                 'addParents': target_folder.folder_id,
                 'fields': DEFAULT_FILE_FIELDS
             }
             
             # Remove from current parents if requested
-            if remove_from_current_parents and item_parents:
-                update_params['removeParents'] = ','.join(item_parents)
+            if remove_from_current_parents and item.parent_ids:
+                update_params['removeParents'] = ','.join(item.parent_ids)
             
-            logger.debug(f"Moving item {item_id} to folder {target_folder.folder_id}")
+            logger.debug(f"Moving item {item.item_id} to folder {target_folder.folder_id}")
             
             result = self._service.files().update(**update_params).execute()
             
@@ -823,20 +819,20 @@ class DriveApiService:
             elif e.resp.status == 403:
                 raise PermissionDeniedError(f"Permission denied moving file")
             else:
-                error_msg = f"Failed to move item {item_id}: {e}"
+                error_msg = f"Failed to move item {item.item_id}: {e}"
                 logger.error(error_msg)
                 raise DriveError(error_msg)
         except Exception as e:
-            error_msg = f"Unexpected error moving item {item_id}: {e}"
+            error_msg = f"Unexpected error moving item {item.item_id}: {e}"
             logger.error(error_msg)
             raise DriveError(error_msg)
 
-    def get_parent_folder(self, item: Union[DriveFile, DriveFolder]) -> Optional[DriveFolder]:
+    def get_parent_folder(self, item: DriveItem) -> Optional[DriveFolder]:
         """
         Get the parent folder of a file or folder.
         
         Args:
-            item: DriveFile or DriveFolder object to get parent for
+            item: DriveItem object to get parent for
             
         Returns:
             Parent DriveFolder, or None if no parent
@@ -969,7 +965,7 @@ class DriveApiService:
                                    .execute())
                 
                 if existing_folders:
-                    current_folder_id = existing_folders[0].file_id
+                    current_folder_id = existing_folders[0].item_id
                     logger.debug(f"Folder '{folder_name}' already exists")
                 else:
                     # Create the folder - get parent folder object first
@@ -1007,5 +1003,229 @@ class DriveApiService:
             logger.error(error_msg)
             raise DriveError(error_msg)
 
+    def move_to_trash(self, item: DriveItem) -> DriveItem:
+        """
+        Move a file or folder to trash.
+        Args:
+            item: DriveItem object to move to trash
+        Returns:
+            Updated DriveItem object
+        Raises:
+            FileNotFoundError: If the item is not found
+            DriveError: If the API request fails
+        """
+        try:
+            logger.debug(f"Moving item to trash: {item.item_id}")
+            
+            result = self._service.files().update(
+                fileId=item.item_id,
+                body={'trashed': True},
+                fields=DEFAULT_FILE_FIELDS
+            ).execute()
+            
+            updated_item = utils.convert_api_file_to_correct_type(result)
+            logger.info(f"Successfully moved item to trash: {updated_item.name}")
+            return updated_item
 
+        except HttpError as e:
+            if e.resp.status == 404:
+                raise FileNotFoundError(f"Item not found: {item.item_id}")
+            else:
+                error_msg = f"Failed to move item to trash {item.item_id}: {e}"
+                logger.error(error_msg)
+                raise DriveError(error_msg)
+        except Exception as e:
+            error_msg = f"Unexpected error moving item to trash {item.item_id}: {e}"
+            logger.error(error_msg)
+            raise DriveError(error_msg)
+
+    def get_directory_tree(
+        self,
+        folder: DriveFolder = None,
+        max_depth: int = 3,
+        include_files: bool = True
+    ) -> Dict[str, Any]:
+        """
+        Get directory tree structure as nested dictionary.
+        
+        Args:
+            folder: DriveFolder to get tree structure for
+            max_depth: Maximum depth to traverse (prevents infinite loops)
+            include_files: Whether to include files in the tree
+            
+        Returns:
+            Nested dictionary representing the tree structure
+            
+        Raises:
+            FolderNotFoundError: If the folder is not found
+            DriveError: If the API request fails
+        """
+
+        if not folder:
+            folder = self.get('root')
+
+        def _build_tree_recursive(current_folder: DriveFolder, current_depth: int) -> Dict[str, Any]:
+            # Build current node
+            node = {
+                'name': current_folder.name,
+                'type': 'folder',
+                'id': current_folder.folder_id,
+                'size': None,
+                'children': []
+            }
+            
+            # Stop recursion if max depth reached
+            if current_depth >= max_depth:
+                return node
+            
+            try:
+                # Get folder contents
+                contents = self.list_folder_contents(
+                    current_folder,
+                    include_folders=True,
+                    include_files=include_files,
+                    max_results=1000
+                )
+                
+                # Process each item
+                for item in contents:
+                    if isinstance(item, DriveFolder):
+                        # Recursively build subtree for folders
+                        child_node = _build_tree_recursive(item, current_depth + 1)
+                        node['children'].append(child_node)
+                    elif isinstance(item, DriveFile) and include_files:
+                        # Add file node
+                        file_node = {
+                            'name': item.name,
+                            'type': 'file',
+                            'id': item.file_id,
+                            'size': item.size,
+                            'children': None
+                        }
+                        node['children'].append(file_node)
+                        
+            except (FolderNotFoundError, PermissionDeniedError) as e:
+                # Handle permission errors gracefully
+                logger.warning(f"Cannot access folder {current_folder.name}: {e}")
+                node['children'] = None
+                node['error'] = str(e)
+            
+            return node
+        
+        try:
+            logger.debug(f"Building directory tree for folder: {folder.name}")
+            tree = _build_tree_recursive(folder, 0)
+            logger.info(f"Successfully built directory tree for: {folder.name}")
+            return tree
+            
+        except Exception as e:
+            error_msg = f"Failed to build directory tree: {e}"
+            logger.error(error_msg)
+            raise DriveError(error_msg)
+
+    def print_directory_tree(
+        self,
+        folder: DriveFolder = None,
+        max_depth: int = 3,
+        show_files: bool = True,
+        show_sizes: bool = True,
+        show_dates: bool = False,
+        _current_depth: int = 0,
+        _prefix: str = ""
+    ) -> None:
+        """
+        Print visual tree representation of folder structure.
+        
+        Args:
+            folder: DriveFolder to print tree structure for
+            max_depth: Maximum depth to traverse
+            show_files: Whether to include files in the output
+            show_sizes: Whether to show file sizes
+            show_dates: Whether to show modification dates
+            _current_depth: Internal parameter for recursion
+            _prefix: Internal parameter for tree formatting
+            
+        Raises:
+            FolderNotFoundError: If the folder is not found
+            DriveError: If the API request fails
+        """
+
+        if not folder:
+            folder = self.get('root')
+
+        # Print current folder
+        if _current_depth == 0:
+            print(f"📁 {folder.name}/")
+        
+        # Stop recursion if max depth reached
+        if _current_depth >= max_depth:
+            return
+        
+        try:
+            # Get folder contents
+            contents = self.list_folder_contents(
+                folder,
+                include_folders=True,
+                include_files=show_files,
+                max_results=1000,
+                order_by="name"
+            )
+            
+            # Sort contents: folders first, then files
+            folders = [item for item in contents if isinstance(item, DriveFolder)]
+            files = [item for item in contents if isinstance(item, DriveFile)]
+            sorted_contents = folders + files
+            
+            for i, item in enumerate(sorted_contents):
+                is_last = (i == len(sorted_contents) - 1)
+                
+                # Choose tree characters
+                if is_last:
+                    current_prefix = _prefix + "└── "
+                    next_prefix = _prefix + "    "
+                else:
+                    current_prefix = _prefix + "├── "
+                    next_prefix = _prefix + "│   "
+                
+                # Format item display
+                if isinstance(item, DriveFolder):
+                    # Folder display
+                    display_name = f"📁 {item.name}/"
+                    print(current_prefix + display_name)
+                    
+                    # Recursively print subfolder
+                    self.print_directory_tree(
+                        item,
+                        max_depth=max_depth,
+                        show_files=show_files,
+                        show_sizes=show_sizes,
+                        show_dates=show_dates,
+                        _current_depth=_current_depth + 1,
+                        _prefix=next_prefix
+                    )
+                    
+                elif isinstance(item, DriveFile):
+                    # File display
+                    display_parts = [f"📄 {item.name}"]
+                    
+                    if show_sizes and item.size is not None:
+                        display_parts.append(f"({item.human_readable_size()})")
+                    
+                    if show_dates and item.modified_time:
+                        from ...utils.datetime import convert_datetime_to_readable
+                        readable_date = convert_datetime_to_readable(item.modified_time)
+                        display_parts.append(f"[{readable_date}]")
+                    
+                    display_name = " ".join(display_parts)
+                    print(current_prefix + display_name)
+                    
+        except (FolderNotFoundError, PermissionDeniedError) as e:
+            # Handle permission errors gracefully
+            error_prefix = _prefix + "└── " if _current_depth > 0 else ""
+            print(f"{error_prefix}❌ Access denied: {e}")
+        except Exception as e:
+            error_msg = f"Error displaying folder contents: {e}"
+            logger.error(error_msg)
+            if _current_depth == 0:
+                raise DriveError(error_msg)
 
