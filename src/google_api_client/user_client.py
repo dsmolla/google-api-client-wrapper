@@ -15,12 +15,14 @@ from googleapiclient.discovery import build
 from .services.gmail.api_service import GmailApiService
 from .services.calendar.api_service import CalendarApiService
 from .services.tasks.api_service import TasksApiService
+from .services.drive.api_service import DriveApiService
 
 
 SCOPES = [
     'https://www.googleapis.com/auth/calendar',
     'https://mail.google.com/',
-    'https://www.googleapis.com/auth/tasks'
+    'https://www.googleapis.com/auth/tasks',
+    'https://www.googleapis.com/auth/drive'
 ]
 
 CREDENTIALS_PATH = r"C:\Users\dagms\Projects\Credentials\credentials.json"
@@ -36,6 +38,7 @@ class UserClient:
         events = user.calendar.list_events(number_of_results=10)
         emails = user.gmail.list_emails(max_results=20)
         tasks = user.tasks.list_tasks()
+        files = user.drive.list(max_results=10)
         
         # Multi-user scenario
         user_1 = UserClient.from_credentials_info(app_creds, user1_token)
@@ -57,10 +60,12 @@ class UserClient:
         self._gmail_service = None
         self._calendar_service = None
         self._tasks_service = None
+        self._drive_service = None
 
         self._gmail = None
         self._calendar = None
         self._tasks = None
+        self._drive = None
 
 
     @classmethod
@@ -168,6 +173,12 @@ class UserClient:
         if self._tasks_service is None:
             self._tasks_service = build("tasks", "v1", credentials=self._credentials)
         return self._tasks_service
+    
+    def _get_drive_service(self):
+        """Get or create Drive API service for this user."""
+        if self._drive_service is None:
+            self._drive_service = build("drive", "v3", credentials=self._credentials)
+        return self._drive_service
 
     @property
     def gmail(self):
@@ -189,4 +200,11 @@ class UserClient:
         if self._tasks is None:
             self._tasks = TasksApiService(self._get_tasks_service())
         return self._tasks
+
+    @property
+    def drive(self):
+        """Drive service layer for this user."""
+        if self._drive is None:
+            self._drive = DriveApiService(self._get_drive_service())
+        return self._drive
 

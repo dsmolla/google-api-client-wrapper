@@ -1,7 +1,6 @@
-from ...exceptions.base import APIError
 
 
-class TasksError(APIError):
+class TasksError(Exception):
     """Base exception for Tasks API errors."""
     pass
 

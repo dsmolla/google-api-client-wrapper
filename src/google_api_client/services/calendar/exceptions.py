@@ -1,7 +1,6 @@
-from ...exceptions.base import APIError
 
 
-class CalendarError(APIError):
+class CalendarError(Exception):
     """Base exception for Calendar API errors."""
     pass
 
