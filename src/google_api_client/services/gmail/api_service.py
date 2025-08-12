@@ -4,14 +4,11 @@ from typing import Optional, List, Dict, Any, overload, Union
 
 from googleapiclient.errors import HttpError
 
-from ...utils.datetime import convert_datetime_to_readable
-
 from .types import EmailMessage, EmailAttachment, Label, EmailThread
 from .query_builder import EmailQueryBuilder
 from . import utils
 from .constants import DEFAULT_MAX_RESULTS, MAX_RESULTS_LIMIT
 
-# Import exceptions from centralized location
 from .exceptions import GmailError, GmailPermissionError, AttachmentNotFoundError
 
 
@@ -71,9 +68,6 @@ class GmailApiService:
         # Input validation
         if max_results and (max_results < 1 or max_results > MAX_RESULTS_LIMIT):
             raise ValueError(f"max_results must be between 1 and {MAX_RESULTS_LIMIT}")
-
-
-
 
         # Get list of message IDs
         request_params = {
@@ -280,7 +274,6 @@ class GmailApiService:
         Returns:
             An EmailMessage object representing the forwarded message
         """
-        sanitized = sanitize_for_logging(to=to)
         
         # Prepare subject with Fwd: prefix
         subject = f"Fwd: {original_email.subject}" if original_email.subject else "Fwd:"
