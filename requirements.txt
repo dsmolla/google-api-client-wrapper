@@ -2,13 +2,4 @@ google-api-python-client~=2.163.0
 google-auth-httplib2
 google-auth-oauthlib~=1.2.1
 tzlocal~=5.3.1
-protobuf~=5.29.3
 html2text~=2025.4.15
-aiohttp==3.12.15
-aiogoogle~=5.3.0
-
-# Testing dependencies
-pytest~=8.0.0
-pytest-asyncio~=0.21.0
-pytest-cov~=4.0.0
-pytest-mock~=3.12.0
