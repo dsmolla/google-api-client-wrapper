@@ -177,6 +177,7 @@ def guess_mime_type(file_path: str) -> str:
     mime_type, _ = mimetypes.guess_type(file_path)
     return mime_type or "application/octet-stream"
 
+
 def guess_extension(mime_type: str) -> Optional[str]:
     """
     Guess the extension of a file based on its MIME type.

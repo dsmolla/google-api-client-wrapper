@@ -10,7 +10,7 @@ from typing import Optional, List
 import base64
 import re
 from .types import EmailMessage, EmailAttachment, EmailAddress, EmailThread
-from ...utils.datetime import convert_datetime_to_local_timezone
+from ...utils.datetime import convert_datetime_to_local_timezone, convert_datetime_to_readable
 import logging
 from .constants import MAX_SUBJECT_LENGTH, MAX_BODY_LENGTH
 
@@ -22,6 +22,7 @@ def is_valid_email(email: str) -> bool:
     """Validate email format using regex."""
     pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
     return re.match(pattern, email) is not None
+
 
 def validate_text_field(value: Optional[str], max_length: int, field_name: str) -> None:
     """Validates text field length and content."""
@@ -113,7 +114,7 @@ def extract_attachments(message_id: str, payload: dict) -> List[EmailAttachment]
                 try:
                     attachment = EmailAttachment(
                         filename=part['filename'],
-                        content_type=part.get('mimeType', 'application/octet-stream'),
+                        mime_type=part.get('mimeType', 'application/octet-stream'),
                         size=part.get('body', {}).get('size', 0),
                         attachment_id=part['body']['attachmentId'],
                         message_id=message_id
@@ -211,7 +212,8 @@ def from_gmail_message(gmail_message: dict) -> "EmailMessage":
         is_starred=is_starred,
         is_important=is_important,
         snippet=html.unescape(gmail_message.get('snippet')).strip(),
-        reply_to_id=headers.get('message-id')
+        reply_to_id=headers.get('message-id'),
+        references=headers.get('references')
     )
 
 
@@ -223,6 +225,7 @@ def create_message(
         cc: Optional[List[str]] = None,
         bcc: Optional[List[str]] = None,
         attachment_paths: Optional[List[str]] = None,
+        attachment_data_list: Optional[List[tuple]] = None,
         reply_to_message_id: Optional[str] = None,
         references: Optional[str] = None
 
@@ -242,6 +245,7 @@ def create_message(
         cc: List of CC recipient email addresses (optional).
         bcc: List of BCC recipient email addresses (optional).
         attachment_paths: List of file paths to attach (optional).
+        attachment_data_list: List of tuples (filename, mime_type, data_bytes) for in-memory attachments (optional).
         reply_to_message_id: ID of message this is replying to (optional).
         references: List of references to attach (optional).
 
@@ -259,10 +263,13 @@ def create_message(
     if body_html and len(body_html) > MAX_BODY_LENGTH:
         raise ValueError(f"Body HTML cannot exceed {MAX_BODY_LENGTH} characters")
 
+    # Create the message content (text and/or HTML)
     if body_html and body_text:
-        message = MIMEMultipart('alternative')
-        message.attach(MIMEText(body_text, 'plain'))
-        message.attach(MIMEText(body_html, 'html'))
+        # Both text and HTML - create alternative container
+        content_part = MIMEMultipart('alternative')
+        content_part.attach(MIMEText(body_text, 'plain'))
+        content_part.attach(MIMEText(body_html, 'html'))
+        message = content_part
     elif body_html:
         message = MIMEText(body_html, 'html')
     else:
@@ -277,38 +284,74 @@ def create_message(
         message['bcc'] = ', '.join(bcc)
 
     # Add attachments
-    if attachment_paths:
-        # Convert to multipart if needed
-        if not isinstance(message, MIMEMultipart):
-            original_message = message
-            message = MIMEMultipart()
-            message.attach(original_message)
-            message['to'] = ', '.join(to)
-            message['subject'] = subject
-            if cc:
-                message['cc'] = ', '.join(cc)
-            if bcc:
-                message['bcc'] = ', '.join(bcc)
+    if attachment_paths or attachment_data_list:
+        logger.debug("Adding attachments - file_paths: %d, data_attachments: %d", 
+                    len(attachment_paths) if attachment_paths else 0,
+                    len(attachment_data_list) if attachment_data_list else 0)
+        
+        # Create mixed container for content + attachments
+        content_message = message  # Save the content part
+        message = MIMEMultipart('mixed')
+        
+        # Attach the content (text/HTML/alternative) as first part
+        message.attach(content_message)
+        
+        # Set headers on the mixed container
+        message['to'] = ', '.join(to)
+        message['subject'] = subject
+        if cc:
+            message['cc'] = ', '.join(cc)
+        if bcc:
+            message['bcc'] = ', '.join(bcc)
 
-        for file_path in attachment_paths:
-            if os.path.isfile(file_path):
-                content_type, encoding = mimetypes.guess_type(file_path)
-                if content_type is None or encoding is not None:
-                    content_type = 'application/octet-stream'
+        # Add file attachments
+        if attachment_paths:
+            for file_path in attachment_paths:
+                if os.path.isfile(file_path):
+                    content_type, encoding = mimetypes.guess_type(file_path)
+                    if content_type is None or encoding is not None:
+                        content_type = 'application/octet-stream'
 
-                main_type, sub_type = content_type.split('/', 1)
+                    main_type, sub_type = content_type.split('/', 1)
 
-                with open(file_path, 'rb') as fp:
-                    attachment = MIMEBase(main_type, sub_type)
-                    attachment.set_payload(fp.read())
-                    encoders.encode_base64(attachment)
-                    # Sanitize filename to prevent header injection
-                    safe_filename = sanitize_header_value(os.path.basename(file_path))
-                    attachment.add_header(
-                        'Content-Disposition',
-                        f'attachment; filename="{safe_filename}"'
-                    )
-                    message.attach(attachment)
+                    with open(file_path, 'rb') as fp:
+                        attachment = MIMEBase(main_type, sub_type)
+                        attachment.set_payload(fp.read())
+                        encoders.encode_base64(attachment)
+                        # Sanitize filename to prevent header injection
+                        safe_filename = sanitize_header_value(os.path.basename(file_path))
+                        attachment.add_header(
+                            'Content-Disposition',
+                            f'attachment; filename="{safe_filename}"'
+                        )
+                        message.attach(attachment)
+        
+        # Add in-memory attachments
+        if attachment_data_list:
+            logger.debug("Processing %d in-memory attachments", len(attachment_data_list))
+            for filename, mime_type, data_bytes in attachment_data_list:
+                logger.debug("Adding attachment: %s (type: %s, size: %d bytes)", 
+                           filename, mime_type, len(data_bytes))
+                main_type, sub_type = mime_type.split('/', 1) if '/' in mime_type else ('application', 'octet-stream')
+                attachment = MIMEBase(main_type, sub_type)
+                
+                # data_bytes from get_attachment_payload is already raw binary data
+                # so we need to encode it to base64
+                attachment.set_payload(data_bytes)
+                encoders.encode_base64(attachment)
+                
+                # Sanitize filename to prevent header injection
+                safe_filename = sanitize_header_value(filename)
+                attachment.add_header(
+                    'Content-Disposition',
+                    f'attachment; filename="{safe_filename}"'
+                )
+                
+                # Add Content-Type header explicitly
+                attachment.add_header('Content-Type', mime_type)
+                
+                message.attach(attachment)
+                logger.debug("Successfully attached: %s", safe_filename)
 
     # Add reply headers if this is a reply
     if reply_to_message_id:
@@ -350,3 +393,82 @@ def from_gmail_thread(gmail_thread: dict) -> EmailThread:
         snippet=snippet,
         history_id=history_id
     )
+
+
+def build_references_header(email: EmailMessage) -> Optional[str]:
+    """
+    Builds a References header by appending the original message's Message-ID to existing references.
+    
+    Args:
+        email: The email being replied to
+        
+    Returns:
+        A properly formatted References header string or None
+    """
+    references_parts = []
+    
+    # Add existing references (already contains the proper thread chain)
+    if email.references:
+        references_parts.append(email.references.strip())
+    
+    # Add the original message's Message-ID to continue the chain
+    if email.reply_to_id:
+        references_parts.append(email.reply_to_id.strip())
+    
+    return " ".join(references_parts) if references_parts else None
+
+
+def prepare_forward_body_text(email: EmailMessage) -> str:
+    if email.body_text:
+        forwarded_body_text = "\n".join([
+            email.body_text,
+            "\n\n---------- Forwarded message ---------",
+            f"From: {email.sender}",
+            f"Date: {convert_datetime_to_readable(email.date_time)}",
+            f"Subject: {email.subject}",
+            f"To: {", ".join([str(recipient) for recipient in email.recipients])}",
+            ""
+        ])
+    else:
+        forwarded_body_text = "\n".join([
+            "\n\n---------- Forwarded message ---------",
+            f"From: {email.sender}",
+            f"Date: {convert_datetime_to_readable(email.date_time)}",
+            f"Subject: {email.subject}",
+            f"To: {", ".join([str(recipient) for recipient in email.recipients])}",
+            ""
+        ])
+
+    return forwarded_body_text
+
+
+def prepare_forward_body_html(email: EmailMessage) -> Optional[str]:
+    """
+    Prepares the HTML body for a forwarded email.
+    """
+    if not email.body_html:
+        return None
+        
+    forward_content = []
+
+    forward_content.append("---------- Forwarded message ---------<br>")
+    
+    forward_content.append(f"<b>From:</b> {email.sender}<br>")
+    forward_content.append(f"<b>Date:</b> {convert_datetime_to_readable(email.date_time)}<br>")
+    forward_content.append(f"<b>Subject:</b> {email.subject}<br>")
+    if email.recipients:
+        to_list = ", ".join([str(recipient) for recipient in email.recipients])
+        forward_content.append(f"<b>To:</b> {to_list}<br>")
+    
+    forward_content.append("<br>")  # Empty line before original content
+    
+    # Add original message content
+    if email.body_html:
+        forward_content.append(email.body_html)
+    elif email.body_text:
+        # Convert plain text to HTML
+        html_text = email.body_text.replace('\n', '<br>')
+        forward_content.append(html_text)
+    
+    return "".join(forward_content)
+

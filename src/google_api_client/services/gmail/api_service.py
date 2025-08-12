@@ -1,9 +1,10 @@
 import base64
 import os
-from typing import Optional, List, Self, Dict, Any
+from typing import Optional, List, Dict, Any
 
 from googleapiclient.errors import HttpError
 
+from ...utils.datetime import convert_datetime_to_readable
 from ...utils.log_sanitizer import sanitize_for_logging
 import logging
 
@@ -249,7 +250,7 @@ class GmailApiService:
             body_html: Optional[str] = None,
             attachment_paths: Optional[List[str]] = None,
             reply_all: bool = False
-    ) -> Self:
+    ) -> EmailMessage:
         """
         Sends a reply to the current email message.
         Args:
@@ -267,6 +268,10 @@ class GmailApiService:
             to = [original_email.sender.email]
 
         logger.info("Replying to message %s", original_email.message_id)
+        
+        # Build enhanced references header
+        enhanced_references = utils.build_references_header(original_email)
+        
         return self.send_email(
             to=to,
             subject=original_email.subject,
@@ -274,9 +279,69 @@ class GmailApiService:
             body_html=body_html,
             attachment_paths=attachment_paths,
             reply_to_message_id=original_email.reply_to_id,
-            references=original_email.references,
+            references=enhanced_references,
             thread_id=original_email.thread_id
         )
+
+    def forward(
+            self,
+            original_email: EmailMessage,
+            to: List[str],
+            include_attachments: bool = True
+    ) -> EmailMessage:
+        """
+        Forwards an email message to new recipients.
+        
+        Args:
+            original_email: The original email message being forwarded
+            to: List of recipient email addresses
+            include_attachments: Whether to include original email's attachments
+            
+        Returns:
+            An EmailMessage object representing the forwarded message
+        """
+        logger.info("Forwarding message %s to %s", original_email.message_id, to)
+        
+        # Prepare subject with Fwd: prefix
+        subject = f"Fwd: {original_email.subject}" if original_email.subject else "Fwd:"
+
+        # Prepare Text body for forwarding
+        forwarded_body_text = None
+        if original_email.body_text:
+            forwarded_body_text = utils.prepare_forward_body_text(original_email)
+
+        # Prepare HTML body for forwarding
+        forwarded_body_html = None
+        if original_email.body_html:
+            forwarded_body_html = utils.prepare_forward_body_html(original_email)
+
+        # Handle original attachments if requested
+        attachment_data_list = []
+        if include_attachments and original_email.attachments:
+            for attachment in original_email.attachments:
+                attachment_bytes = self.get_attachment_payload(attachment)
+                attachment_data_list.append((attachment.filename, attachment.mime_type, attachment_bytes))
+
+        raw_message = utils.create_message(
+            to=to,
+            subject=subject,
+            body_text=forwarded_body_text,
+            body_html=forwarded_body_html,
+            attachment_data_list=attachment_data_list if attachment_data_list else None
+        )
+        
+        try:
+            send_result = self._service.users().messages().send(
+                userId='me',
+                body={'raw': raw_message}
+            ).execute()
+            
+            logger.info("Message forwarded successfully with ID: %s", send_result.get('id'))
+            return self.get_email(send_result['id'])
+            
+        except Exception as e:
+            logger.error("Error forwarding message: %s", e)
+            raise
 
     def mark_as_read(self, email: EmailMessage) -> bool:
         """
@@ -415,23 +480,26 @@ class GmailApiService:
             logger.error("Error deleting message: %s", e)
             return False
 
+    def get_attachment_payload(self, attachment: EmailAttachment) -> bytes:
+        attachment_ = self._service.users().messages().attachments().get(
+            userId='me',
+            messageId=attachment.message_id,
+            id=attachment.attachment_id
+        ).execute()
+        data = attachment_['data']
+        data = base64.urlsafe_b64decode(data + '===')
+
+        return data
+
     def download_attachment(self, attachment: EmailAttachment, download_folder: str = 'attachments'):
         if not os.path.exists(download_folder):
             os.makedirs(download_folder)
 
         try:
-            attachment = self._service.users().messages().attachments().get(
-                userId='me',
-                messageId=attachment.message_id,
-                id=attachment.attachment_id
-            ).execute()
-
-            data = attachment['data']
-            data = base64.urlsafe_b64decode(data + '===')
             logger.info("Downloading attachment %s", attachment.attachment_id)
 
             with open(os.path.join(download_folder, attachment.filename), 'wb') as f:
-                f.write(data)
+                f.write(self.get_attachment_payload(attachment))
 
             logger.info("Finished downloading attachment %s", attachment.attachment_id)
 
@@ -717,3 +785,4 @@ class GmailApiService:
         except Exception as e:
             logger.error("Error untrashing thread: %s", e)
             return False
+

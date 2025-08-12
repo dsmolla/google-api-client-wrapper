@@ -42,13 +42,13 @@ class EmailAttachment:
     Represents an email attachment.
     Args:
         filename: The name of the attachment file.
-        content_type: The MIME type of the attachment.
+        mime_type: The MIME type of the attachment.
         size: The size of the attachment in bytes.
         attachment_id: The unique identifier for the attachment in Gmail.
         message_id: The message id of the message the attachment is attached to.
     """
     filename: str
-    content_type: str
+    mime_type: str
     size: int
     attachment_id: str
     message_id: str
@@ -62,7 +62,7 @@ class EmailAttachment:
         """
         return {
             "filename": self.filename,
-            "content_type": self.content_type,
+            "content_type": self.mime_type,
             "size": self.size,
             "attachment_id": self.attachment_id,
             "message_id": self.message_id,

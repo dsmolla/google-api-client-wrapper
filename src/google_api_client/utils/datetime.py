@@ -46,14 +46,14 @@ def convert_datetime_to_readable(start: datetime, end: datetime = None) -> str:
         A formatted string combining `start` and `end` times in a
             human-readable form.
     """
-    start = start.strftime("%a, %d %b %Y %I:%M %p")
+    start = start.strftime("%a, %b %d, %Y %I:%M%p")
     
     if end:
-        if end.day == datetime.strptime(start, "%a, %d %b %Y %I:%M %p").day:
+        if end.day == datetime.strptime(start, "%a, %b %d, %Y %I:%M%p").day:
             # If start and end are on the same day
             end = end.strftime("%I:%M %p")
         else:
-            end = end.strftime("%a, %d %b %Y %I:%M %p")
+            end = end.strftime("%a, %b %d, %Y %I:%M%p")
     return f"{start} - {end}" if end else f"{start}"
 
 def convert_datetime_to_local_timezone(date_time: datetime) -> datetime:
