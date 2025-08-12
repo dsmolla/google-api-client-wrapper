@@ -1,10 +1,8 @@
 from datetime import datetime, date
 from typing import Optional, List, Any, Dict
-import logging
 
 from googleapiclient.errors import HttpError
 
-from ...utils.log_sanitizer import sanitize_for_logging
 from .types import Task, TaskList
 from . import utils
 from .constants import (
@@ -15,8 +13,6 @@ from .exceptions import (
     TasksError, TasksPermissionError, TasksNotFoundError,
     TaskConflictError, InvalidTaskDataError, TaskMoveError
 )
-
-logger = logging.getLogger(__name__)
 
 
 class TasksApiService:
@@ -84,15 +80,6 @@ class TasksApiService:
         if max_results and (max_results < 1 or max_results > MAX_RESULTS_LIMIT):
             raise ValueError(f"max_results must be between 1 and {MAX_RESULTS_LIMIT}")
 
-        sanitized = sanitize_for_logging(
-            task_list_id=task_list_id, max_results=max_results,
-            show_completed=show_completed, show_hidden=show_hidden
-        )
-        logger.info(
-            "Fetching tasks from task_list_id=%s, max_results=%s, show_completed=%s, show_hidden=%s",
-            sanitized['task_list_id'], sanitized['max_results'], 
-            sanitized['show_completed'], sanitized['show_hidden']
-        )
 
         try:
             # Build request parameters
@@ -119,7 +106,6 @@ class TasksApiService:
             result = self._service.tasks().list(**request_params).execute()
             tasks_data = result.get('items', [])
 
-            logger.info("Found %d task items", len(tasks_data))
 
             # Parse tasks
             tasks = []
@@ -127,9 +113,8 @@ class TasksApiService:
                 try:
                     tasks.append(utils.from_google_task(task_data, task_list_id))
                 except Exception as e:
-                    logger.warning("Failed to parse task: %s", e)
+                    pass
 
-            logger.info("Successfully parsed %d complete tasks", len(tasks))
             return tasks
 
         except HttpError as e:
@@ -140,7 +125,6 @@ class TasksApiService:
             else:
                 raise TasksError(f"Tasks API error listing tasks: {e}")
         except Exception as e:
-            logger.error("An error occurred while fetching tasks: %s", e)
             raise TasksError(f"Unexpected error listing tasks: {e}")
 
     def get_task(self, task_id: str, task_list_id: str = DEFAULT_TASK_LIST_ID) -> Task:
@@ -154,7 +138,6 @@ class TasksApiService:
         Returns:
             A Task object representing the task with the specified ID.
         """
-        logger.info("Retrieving task with ID: %s from task list: %s", task_id, task_list_id)
 
         try:
             task_data = self._service.tasks().get(
@@ -162,7 +145,6 @@ class TasksApiService:
                 task=task_id
             ).execute()
             
-            logger.info("Task retrieved successfully")
             return utils.from_google_task(task_data, task_list_id)
             
         except HttpError as e:
@@ -173,7 +155,6 @@ class TasksApiService:
             else:
                 raise TasksError(f"Tasks API error getting task {task_id}: {e}")
         except Exception as e:
-            logger.error("Error retrieving task: %s", e)
             raise TasksError(f"Unexpected error getting task: {e}")
 
     def create_task(
@@ -199,9 +180,6 @@ class TasksApiService:
         Returns:
             A Task object representing the created task.
         """
-        sanitized = sanitize_for_logging(title=title, task_list_id=task_list_id)
-        logger.info("Creating task with title=%s in task_list_id=%s", 
-                   sanitized['title'], sanitized['task_list_id'])
 
         try:
             # Create task body using utils
@@ -220,7 +198,6 @@ class TasksApiService:
             ).execute()
             
             task = utils.from_google_task(created_task, task_list_id)
-            logger.info("Task created successfully with ID: %s", task.task_id)
             return task
             
         except HttpError as e:
@@ -233,7 +210,6 @@ class TasksApiService:
         except ValueError as e:
             raise InvalidTaskDataError(f"Invalid task data: {e}")
         except Exception as e:
-            logger.error("Error creating task: %s", e)
             raise TasksError(f"Unexpected error creating task: {e}")
 
     def update_task(self, task: Task, task_list_id: str = DEFAULT_TASK_LIST_ID) -> Task:
@@ -247,7 +223,6 @@ class TasksApiService:
         Returns:
             A Task object representing the updated task.
         """
-        logger.info("Updating task with ID: %s in task list: %s", task.task_id, task_list_id)
 
         try:
             # Build update body
@@ -261,7 +236,6 @@ class TasksApiService:
             ).execute()
             
             task = utils.from_google_task(updated_task, task_list_id)
-            logger.info("Task updated successfully")
             return task
             
         except HttpError as e:
@@ -274,7 +248,6 @@ class TasksApiService:
         except ValueError as e:
             raise InvalidTaskDataError(f"Invalid task data: {e}")
         except Exception as e:
-            logger.error("Error updating task: %s", e)
             raise TasksError(f"Unexpected error updating task: {e}")
 
     def delete_task(self, task: Task, task_list_id: str = DEFAULT_TASK_LIST_ID) -> bool:
@@ -288,7 +261,6 @@ class TasksApiService:
         Returns:
             True if the operation was successful.
         """
-        logger.info("Deleting task with ID: %s from task list: %s", task.task_id, task_list_id)
 
         try:
             self._service.tasks().delete(
@@ -296,7 +268,6 @@ class TasksApiService:
                 task=task.task_id
             ).execute()
             
-            logger.info("Task deleted successfully")
             return True
             
         except HttpError as e:
@@ -307,7 +278,6 @@ class TasksApiService:
             else:
                 raise TasksError(f"Tasks API error deleting task {task.task_id}: {e}")
         except Exception as e:
-            logger.error("Error deleting task: %s", e)
             raise TasksError(f"Unexpected error deleting task: {e}")
 
     def move_task(
@@ -329,7 +299,6 @@ class TasksApiService:
         Returns:
             A Task object representing the moved task.
         """
-        logger.info("Moving task with ID: %s in task list: %s", task.task_id, task_list_id)
 
         try:
             request_params = {
@@ -344,7 +313,6 @@ class TasksApiService:
             moved_task = self._service.tasks().move(**request_params).execute()
             
             task = utils.from_google_task(moved_task, task_list_id)
-            logger.info("Task moved successfully")
             return task
             
         except HttpError as e:
@@ -355,7 +323,6 @@ class TasksApiService:
             else:
                 raise TaskMoveError(f"Tasks API error moving task {task.task_id}: {e}")
         except Exception as e:
-            logger.error("Error moving task: %s", e)
             raise TaskMoveError(f"Unexpected error moving task: {e}")
 
     def mark_completed(self, task: Task, task_list_id: str = DEFAULT_TASK_LIST_ID) -> Task:
@@ -396,13 +363,11 @@ class TasksApiService:
         Returns:
             A list of TaskList objects representing the task lists found.
         """
-        logger.info("Fetching task lists")
 
         try:
             result = self._service.tasklists().list().execute()
             task_lists_data = result.get('items', [])
 
-            logger.info("Found %d task list items", len(task_lists_data))
 
             # Parse task lists
             task_lists = []
@@ -410,9 +375,8 @@ class TasksApiService:
                 try:
                     task_lists.append(utils.from_google_task_list(task_list_data))
                 except Exception as e:
-                    logger.warning("Failed to parse task list: %s", e)
+                    pass
 
-            logger.info("Successfully parsed %d complete task lists", len(task_lists))
             return task_lists
 
         except HttpError as e:
@@ -421,7 +385,6 @@ class TasksApiService:
             else:
                 raise TasksError(f"Tasks API error listing task lists: {e}")
         except Exception as e:
-            logger.error("An error occurred while fetching task lists: %s", e)
             raise TasksError(f"Unexpected error listing task lists: {e}")
 
     def get_task_list(self, task_list_id: str) -> TaskList:
@@ -434,14 +397,12 @@ class TasksApiService:
         Returns:
             A TaskList object representing the task list with the specified ID.
         """
-        logger.info("Retrieving task list with ID: %s", task_list_id)
 
         try:
             task_list_data = self._service.tasklists().get(
                 tasklist=task_list_id
             ).execute()
             
-            logger.info("Task list retrieved successfully")
             return utils.from_google_task_list(task_list_data)
             
         except HttpError as e:
@@ -452,7 +413,6 @@ class TasksApiService:
             else:
                 raise TasksError(f"Tasks API error getting task list {task_list_id}: {e}")
         except Exception as e:
-            logger.error("Error retrieving task list: %s", e)
             raise TasksError(f"Unexpected error getting task list: {e}")
 
     def create_task_list(self, title: str) -> TaskList:
@@ -465,8 +425,6 @@ class TasksApiService:
         Returns:
             A TaskList object representing the created task list.
         """
-        sanitized = sanitize_for_logging(title=title)
-        logger.info("Creating task list with title=%s", sanitized['title'])
 
         try:
             # Create task list body using utils
@@ -478,7 +436,6 @@ class TasksApiService:
             ).execute()
             
             task_list = utils.from_google_task_list(created_task_list)
-            logger.info("Task list created successfully with ID: %s", task_list.task_list_id)
             return task_list
             
         except HttpError as e:
@@ -489,7 +446,6 @@ class TasksApiService:
         except ValueError as e:
             raise InvalidTaskDataError(f"Invalid task list data: {e}")
         except Exception as e:
-            logger.error("Error creating task list: %s", e)
             raise TasksError(f"Unexpected error creating task list: {e}")
 
     def update_task_list(self, task_list: TaskList, title: str) -> TaskList:
@@ -503,7 +459,6 @@ class TasksApiService:
         Returns:
             A TaskList object representing the updated task list.
         """
-        logger.info("Updating task list with ID: %s", task_list.task_list_id)
 
         try:
             # Create update body
@@ -518,7 +473,6 @@ class TasksApiService:
 
             task_list.title = title
             task_list = utils.from_google_task_list(updated_task_list)
-            logger.info("Task list updated successfully")
             return task_list
             
         except HttpError as e:
@@ -531,7 +485,6 @@ class TasksApiService:
         except ValueError as e:
             raise InvalidTaskDataError(f"Invalid task list data: {e}")
         except Exception as e:
-            logger.error("Error updating task list: %s", e)
             raise TasksError(f"Unexpected error updating task list: {e}")
 
     def delete_task_list(self, task_list: TaskList) -> bool:
@@ -544,14 +497,12 @@ class TasksApiService:
         Returns:
             True if the operation was successful.
         """
-        logger.info("Deleting task list with ID: %s", task_list.task_list_id)
 
         try:
             self._service.tasklists().delete(
                 tasklist=task_list.task_list_id
             ).execute()
             
-            logger.info("Task list deleted successfully")
             return True
             
         except HttpError as e:
@@ -564,7 +515,6 @@ class TasksApiService:
             else:
                 raise TasksError(f"Tasks API error deleting task list {task_list.task_list_id}: {e}")
         except Exception as e:
-            logger.error("Error deleting task list: %s", e)
             raise TasksError(f"Unexpected error deleting task list: {e}")
 
     # Batch Operations
@@ -579,14 +529,13 @@ class TasksApiService:
         Returns:
             List of Task objects.
         """
-        logger.info("Batch retrieving %d tasks from task list: %s", len(task_ids), task_list_id)
 
         tasks = []
         for task_id in task_ids:
             try:
                 tasks.append(self.get_task(task_list_id, task_id))
             except Exception as e:
-                logger.warning("Failed to fetch task %s: %s", task_id, e)
+                pass
 
         return tasks
 
@@ -601,13 +550,12 @@ class TasksApiService:
         Returns:
             List of created Task objects.
         """
-        logger.info("Batch creating %d tasks in task list: %s", len(tasks_data), task_list_id)
 
         created_tasks = []
         for task_data in tasks_data:
             try:
                 created_tasks.append(self.create_task(task_list_id=task_list_id, **task_data))
             except Exception as e:
-                logger.warning("Failed to create task: %s", e)
+                pass
 
         return created_tasks

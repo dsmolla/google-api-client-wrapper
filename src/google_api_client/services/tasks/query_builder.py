@@ -1,13 +1,10 @@
 from datetime import datetime, date, timedelta
 from typing import Optional, List, TYPE_CHECKING
-import logging
 from .constants import MAX_RESULTS_LIMIT, DEFAULT_MAX_RESULTS, DEFAULT_TASK_LIST_ID
 
 if TYPE_CHECKING:
     from .types import Task
     from .api_service import TasksApiService
-
-logger = logging.getLogger(__name__)
 
 
 class TaskQueryBuilder:
@@ -283,7 +280,6 @@ class TaskQueryBuilder:
         Raises:
             ValueError: If query parameters are invalid
         """
-        logger.info("Executing task query with builder")
         
         # Use the service layer implementation
         tasks = self._api_service.list_tasks(
@@ -297,7 +293,6 @@ class TaskQueryBuilder:
             show_hidden=self._show_hidden
         )
         
-        logger.info("Builder query returned %d tasks", len(tasks))
         return tasks
         
     def count(self) -> int:

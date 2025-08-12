@@ -1,7 +1,6 @@
 import re
 from datetime import datetime, date, time
 from typing import Optional, Dict, Any
-import logging
 
 from .types import Task, TaskList
 from .constants import (
@@ -10,41 +9,15 @@ from .constants import (
 )
 from ...utils.datetime import convert_datetime_to_local_timezone
 
-logger = logging.getLogger(__name__)
 
-
-def validate_text_field(value: Optional[str], max_length: int, field_name: str) -> None:
-    """Validates text field length and content."""
-    if value and len(value) > max_length:
-        raise ValueError(f"{field_name} cannot exceed {max_length} characters")
+# Import from shared utilities
+from ...utils.validation import validate_text_field, sanitize_header_value
 
 
 def validate_task_status(status: Optional[str]) -> None:
     """Validates task status."""
     if status and status not in VALID_TASK_STATUSES:
         raise ValueError(f"Invalid task status: {status}. Must be one of: {', '.join(VALID_TASK_STATUSES)}")
-
-
-def sanitize_header_value(value: str) -> str:
-    """
-    Sanitize a string value for safe use in API requests.
-    
-    Args:
-        value: The string to sanitize
-    
-    Returns:
-        Sanitized string safe for use in API calls
-    """
-    if not value:
-        return ""
-    
-    # Remove control characters that could cause issues
-    sanitized = re.sub(r'[\r\n\x00-\x1f\x7f-\x9f]', '', value)
-    
-    # Remove any quotes that could break the structure
-    sanitized = sanitized.replace('"', '')
-    
-    return sanitized.strip()
 
 
 def parse_datetime_field(field_value: Optional[str]) -> Optional[date]:
@@ -70,8 +43,7 @@ def parse_datetime_field(field_value: Optional[str]) -> Optional[date]:
         # Convert to local timezone and return date
         dt = convert_datetime_to_local_timezone(dt)
         return dt.date()
-    except (ValueError, TypeError) as e:
-        logger.warning("Failed to parse datetime: %s", e)
+    except (ValueError, TypeError):
         return None
 
 
@@ -97,8 +69,7 @@ def parse_update_datetime_field(field_value: Optional[str]) -> Optional[datetime
             
         # Convert to local timezone
         return convert_datetime_to_local_timezone(dt)
-    except (ValueError, TypeError) as e:
-        logger.warning("Failed to parse datetime: %s", e)
+    except (ValueError, TypeError):
         return None
 
 
@@ -121,7 +92,6 @@ def from_google_task(google_task: Dict[str, Any], task_list_id: Optional[str] = 
         
         # Validate status
         if status not in VALID_TASK_STATUSES:
-            logger.warning("Invalid task status: %s, defaulting to needsAction", status)
             status = 'needsAction'
         
         # Parse dates
@@ -147,9 +117,7 @@ def from_google_task(google_task: Dict[str, Any], task_list_id: Optional[str] = 
         )
         
     except Exception as e:
-        logger.error("Failed to parse Google Task: %s", e)
-        logger.debug("Task data: %s", str(google_task)[:500])
-        raise ValueError(f"Invalid task data: {e}")
+        raise ValueError("Invalid task data - failed to parse Google task")
 
 
 def from_google_task_list(google_task_list: Dict[str, Any]) -> TaskList:
@@ -174,9 +142,7 @@ def from_google_task_list(google_task_list: Dict[str, Any]) -> TaskList:
         )
         
     except Exception as e:
-        logger.error("Failed to parse Google TaskList: %s", e)
-        logger.debug("TaskList data: %s", str(google_task_list)[:500])
-        raise ValueError(f"Invalid task list data: {e}")
+        raise ValueError("Invalid task list data - failed to parse Google task list")
 
 
 def create_task_body(

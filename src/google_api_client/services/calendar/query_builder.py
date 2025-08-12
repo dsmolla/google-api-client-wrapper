@@ -1,14 +1,11 @@
 from datetime import datetime, date, time, timedelta
 from typing import Optional, List, TYPE_CHECKING
-import logging
 from ...utils.datetime import date_start, date_end, days_from_today
 from .constants import MAX_RESULTS_LIMIT, MAX_QUERY_LENGTH, DEFAULT_MAX_RESULTS, DEFAULT_CALENDAR_ID
 
 if TYPE_CHECKING:
     from .types import CalendarEvent
     from .api_service import CalendarApiService
-
-logger = logging.getLogger(__name__)
 
 
 class EventQueryBuilder:
@@ -272,7 +269,6 @@ class EventQueryBuilder:
         Raises:
             ValueError: If query parameters are invalid
         """
-        logger.info("Executing event query with builder")
         
         # Use the service layer implementation
         events = self._api_service.list_events(
@@ -287,8 +283,6 @@ class EventQueryBuilder:
         # Apply any client-side filters
         filtered_events = self._apply_post_filters(events)
         
-        logger.info("Builder query returned %d events (filtered from %d)", 
-                   len(filtered_events), len(events))
         return filtered_events
         
     def count(self) -> int:

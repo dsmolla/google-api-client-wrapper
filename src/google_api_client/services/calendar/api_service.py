@@ -1,10 +1,8 @@
 from datetime import datetime
 from typing import Optional, List, Any, Dict
-import logging
 
 from googleapiclient.errors import HttpError
 
-from ...utils.log_sanitizer import sanitize_for_logging
 from ...utils.datetime import convert_datetime_to_iso, today_start
 from .types import CalendarEvent, Attendee
 from . import utils
@@ -13,8 +11,6 @@ from .exceptions import (
     CalendarError, CalendarPermissionError, EventNotFoundError,
     CalendarNotFoundError, EventConflictError, InvalidEventDataError
 )
-
-logger = logging.getLogger(__name__)
 
 
 class CalendarApiService:
@@ -80,15 +76,7 @@ class CalendarApiService:
         if max_results and (max_results < 1 or max_results > MAX_RESULTS_LIMIT):
             raise ValueError(f"max_results must be between 1 and {MAX_RESULTS_LIMIT}")
 
-        sanitized = sanitize_for_logging(
-            max_results=max_results, start=start, end=end, 
-            query=query, calendar_id=calendar_id
-        )
-        logger.info(
-            "Fetching events with max_results=%s, start=%s, end=%s, query=%s, calendar_id=%s",
-            sanitized['max_results'], sanitized['start'], sanitized['end'],
-            sanitized['query'], sanitized['calendar_id']
-        )
+        # Input validation and preparation
 
         try:
             # Build request parameters
@@ -113,7 +101,6 @@ class CalendarApiService:
             result = self._service.events().list(**request_params).execute()
             events_data = result.get('items', [])
 
-            logger.info("Found %d event items", len(events_data))
 
             # Parse events
             calendar_events = []
@@ -121,9 +108,8 @@ class CalendarApiService:
                 try:
                     calendar_events.append(utils.from_google_event(event_data))
                 except Exception as e:
-                    logger.warning("Failed to parse event: %s", e)
+                    pass
 
-            logger.info("Successfully parsed %d complete events", len(calendar_events))
             return calendar_events
 
         except HttpError as e:
@@ -134,7 +120,6 @@ class CalendarApiService:
             else:
                 raise CalendarError(f"Calendar API error listing events: {e}")
         except Exception as e:
-            logger.error("An error occurred while fetching events: %s", e)
             raise CalendarError(f"Unexpected error listing events: {e}")
 
     def get_event(self, event_id: str, calendar_id: str = DEFAULT_CALENDAR_ID) -> CalendarEvent:
@@ -148,7 +133,6 @@ class CalendarApiService:
         Returns:
             A CalendarEvent object representing the event with the specified ID.
         """
-        logger.info("Retrieving event with ID: %s from calendar: %s", event_id, calendar_id)
 
         try:
             event_data = self._service.events().get(
@@ -156,7 +140,6 @@ class CalendarApiService:
                 eventId=event_id
             ).execute()
             
-            logger.info("Event retrieved successfully")
             return utils.from_google_event(event_data)
             
         except HttpError as e:
@@ -167,7 +150,6 @@ class CalendarApiService:
             else:
                 raise CalendarError(f"Calendar API error getting event {event_id}: {e}")
         except Exception as e:
-            logger.error("Error retrieving event: %s", e)
             raise CalendarError(f"Unexpected error getting event: {e}")
 
     def create_event(
@@ -197,9 +179,7 @@ class CalendarApiService:
         Returns:
             A CalendarEvent object representing the created event.
         """
-        sanitized = sanitize_for_logging(summary=summary, start=start, end=end)
-        logger.info("Creating event with summary=%s, start=%s, end=%s", 
-                   sanitized['summary'], sanitized['start'], sanitized['end'])
+        # Create event preparation
 
         try:
             # Create event body using utils
@@ -220,7 +200,6 @@ class CalendarApiService:
             ).execute()
             
             calendar_event = utils.from_google_event(created_event)
-            logger.info("Event created successfully with ID: %s", calendar_event.event_id)
             return calendar_event
             
         except HttpError as e:
@@ -233,7 +212,6 @@ class CalendarApiService:
         except ValueError as e:
             raise InvalidEventDataError(f"Invalid event data: {e}")
         except Exception as e:
-            logger.error("Error creating event: %s", e)
             raise CalendarError(f"Unexpected error creating event: {e}")
 
     def update_event(
@@ -251,7 +229,6 @@ class CalendarApiService:
         Returns:
             A CalendarEvent object representing the updated event.
         """
-        logger.info("Updating event with ID: %s", event.event_id)
 
         try:
             # Convert event to API format
@@ -275,7 +252,6 @@ class CalendarApiService:
             ).execute()
             
             updated_calendar_event = utils.from_google_event(updated_event)
-            logger.info("Event updated successfully")
             return updated_calendar_event
             
         except HttpError as e:
@@ -290,7 +266,6 @@ class CalendarApiService:
         except ValueError as e:
             raise InvalidEventDataError(f"Invalid event data: {e}")
         except Exception as e:
-            logger.error("Error updating event: %s", e)
             raise CalendarError(f"Unexpected error updating event: {e}")
 
     def delete_event(
@@ -308,7 +283,6 @@ class CalendarApiService:
         Returns:
             True if the operation was successful, False otherwise.
         """
-        logger.info("Deleting event with ID: %s", event.event_id)
 
         try:
             self._service.events().delete(
@@ -316,7 +290,6 @@ class CalendarApiService:
                 eventId=event.event_id
             ).execute()
             
-            logger.info("Event deleted successfully")
             return True
             
         except HttpError as e:
@@ -327,7 +300,6 @@ class CalendarApiService:
             else:
                 raise CalendarError(f"Calendar API error deleting event {event.event_id}: {e}")
         except Exception as e:
-            logger.error("Error deleting event: %s", e)
             raise CalendarError(f"Unexpected error deleting event: {e}")
 
     def batch_get_events(self, event_ids: List[str], calendar_id: str = DEFAULT_CALENDAR_ID) -> List[CalendarEvent]:
@@ -341,14 +313,13 @@ class CalendarApiService:
         Returns:
             List of CalendarEvent objects.
         """
-        logger.info("Batch retrieving %d events", len(event_ids))
 
         calendar_events = []
         for event_id in event_ids:
             try:
                 calendar_events.append(self.get_event(event_id, calendar_id))
             except Exception as e:
-                logger.warning("Failed to fetch event %s: %s", event_id, e)
+                pass
 
         return calendar_events
 
@@ -363,13 +334,12 @@ class CalendarApiService:
         Returns:
             List of created CalendarEvent objects.
         """
-        logger.info("Batch creating %d events", len(events_data))
 
         created_events = []
         for event_data in events_data:
             try:
                 created_events.append(self.create_event(calendar_id=calendar_id, **event_data))
             except Exception as e:
-                logger.warning("Failed to create event: %s", e)
+                pass
 
         return created_events

@@ -11,53 +11,11 @@ import base64
 import re
 from .types import EmailMessage, EmailAttachment, EmailAddress, EmailThread
 from ...utils.datetime import convert_datetime_to_local_timezone, convert_datetime_to_readable
-import logging
 from .constants import MAX_SUBJECT_LENGTH, MAX_BODY_LENGTH
 
 
-logger = logging.getLogger(__name__)
-
-
-def is_valid_email(email: str) -> bool:
-    """Validate email format using regex."""
-    pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
-    return re.match(pattern, email) is not None
-
-
-def validate_text_field(value: Optional[str], max_length: int, field_name: str) -> None:
-    """Validates text field length and content."""
-    if value and len(value) > max_length:
-        raise ValueError(f"Email {field_name} cannot exceed {max_length} characters")
-
-
-def sanitize_header_value(value: str) -> str:
-    """
-    Sanitize a string value for safe use in HTTP headers.
-
-    Prevents header injection by removing control characters that could
-    be used to inject additional headers or corrupt the MIME structure.
-
-    Args:
-        value: The string to sanitize
-
-    Returns:
-        Sanitized string safe for use in headers
-    """
-    if not value:
-        return ""
-
-    # Remove control characters that could cause header injection
-    # This includes \r, \n, \0, and other control characters
-    sanitized = re.sub(r'[\r\n\x00-\x1f\x7f-\x9f]', '', value)
-
-    # Remove any quotes that could break the header structure
-    sanitized = sanitized.replace('"', '')
-
-    # Limit length to prevent overly long headers
-    if len(sanitized) > 255:
-        sanitized = sanitized[:255]
-
-    return sanitized.strip()
+# Import from shared utilities
+from ...utils.validation import is_valid_email, sanitize_header_value
 
 
 def extract_body(payload: dict) -> tuple[Optional[str], Optional[str]]:
@@ -120,8 +78,8 @@ def extract_attachments(message_id: str, payload: dict) -> List[EmailAttachment]
                         message_id=message_id
                     )
                     attachments.append(attachment)
-                except ValueError as e:
-                    logger.warning("Skipping invalid attachment: %s", e)
+                except ValueError:
+                    pass
             elif part.get('parts'):
                 extract_from_parts(part['parts'])
 
@@ -157,8 +115,8 @@ def from_gmail_message(gmail_message: dict) -> "EmailMessage":
             if email and is_valid_email(email):
                 try:
                     addresses.append(EmailAddress(email=email, name=name if name else None))
-                except ValueError as e:
-                    logger.warning("Skipping invalid email address: %s", e)
+                except ValueError:
+                    pass
         return addresses
 
     sender = None
@@ -185,7 +143,7 @@ def from_gmail_message(gmail_message: dict) -> "EmailMessage":
             date_received = parsedate_to_datetime(headers['date'])
             date_received = convert_datetime_to_local_timezone(date_received)
         except:
-            logger.warning("Failed to parse date: %s", headers.get('date'))
+            pass
 
     # Extract labels
     labels = gmail_message.get('labelIds', [])
@@ -285,9 +243,7 @@ def create_message(
 
     # Add attachments
     if attachment_paths or attachment_data_list:
-        logger.debug("Adding attachments - file_paths: %d, data_attachments: %d", 
-                    len(attachment_paths) if attachment_paths else 0,
-                    len(attachment_data_list) if attachment_data_list else 0)
+        
         
         # Create mixed container for content + attachments
         content_message = message  # Save the content part
@@ -327,11 +283,9 @@ def create_message(
                         message.attach(attachment)
         
         # Add in-memory attachments
-        if attachment_data_list:
-            logger.debug("Processing %d in-memory attachments", len(attachment_data_list))
+        
             for filename, mime_type, data_bytes in attachment_data_list:
-                logger.debug("Adding attachment: %s (type: %s, size: %d bytes)", 
-                           filename, mime_type, len(data_bytes))
+                
                 main_type, sub_type = mime_type.split('/', 1) if '/' in mime_type else ('application', 'octet-stream')
                 attachment = MIMEBase(main_type, sub_type)
                 
@@ -351,7 +305,7 @@ def create_message(
                 attachment.add_header('Content-Type', mime_type)
                 
                 message.attach(attachment)
-                logger.debug("Successfully attached: %s", safe_filename)
+                
 
     # Add reply headers if this is a reply
     if reply_to_message_id:
@@ -384,8 +338,8 @@ def from_gmail_thread(gmail_thread: dict) -> EmailThread:
         try:
             email_message = from_gmail_message(gmail_message)
             messages.append(email_message)
-        except Exception as e:
-            logger.warning("Failed to parse message in thread %s: %s", thread_id, e)
+        except Exception:
+            pass
     
     return EmailThread(
         thread_id=thread_id,

@@ -1,13 +1,11 @@
 import io
 import os
 from typing import Optional, List, Dict, Any, Union, BinaryIO
-import logging
 
 from googleapiclient.errors import HttpError
 from googleapiclient.http import MediaFileUpload, MediaIoBaseUpload, MediaIoBaseDownload
 
 from .utils import convert_mime_type_to_downloadable, guess_mime_type, guess_extension
-from ...utils.log_sanitizer import sanitize_for_logging
 from .types import DriveFile, DriveFolder, Permission, DriveItem
 from .query_builder import DriveQueryBuilder
 from . import utils
@@ -19,8 +17,6 @@ from .exceptions import (
     DriveError, FileNotFoundError, FolderNotFoundError, PermissionDeniedError, FileTooLargeError,
     UploadFailedError, DownloadFailedError, SharingError, DrivePermissionError, InvalidQueryError
 )
-
-logger = logging.getLogger(__name__)
 
 
 class DriveApiService:
@@ -95,19 +91,14 @@ class DriveApiService:
             if page_token:
                 request_params['pageToken'] = page_token
 
-            logger.debug(f"Listing files with params: {sanitize_for_logging(**request_params)}")
-
             result = self._service.files().list(**request_params).execute()
             files_data = result.get('files', [])
             
             items = [utils.convert_api_file_to_correct_type(file_data) for file_data in files_data]
-            
-            logger.info(f"Retrieved {len(items)} items from Drive")
             return items
 
         except HttpError as e:
             error_msg = f"Failed to list files: {e}"
-            logger.error(error_msg)
             
             if e.resp.status == 403:
                 raise PermissionDeniedError(f"Permission denied: {e}")
@@ -117,7 +108,6 @@ class DriveApiService:
                 raise DriveError(error_msg)
         except Exception as e:
             error_msg = f"Unexpected error listing files: {e}"
-            logger.error(error_msg)
             raise DriveError(error_msg)
 
     def get(self, item_id: str, fields: Optional[str] = None) -> DriveItem:
@@ -136,8 +126,6 @@ class DriveApiService:
             DriveError: If the API request fails
         """
         try:
-            logger.debug(f"Getting item: {item_id}")
-            
             request_params = {
                 'fileId': item_id,
                 'fields': fields or DEFAULT_FILE_FIELDS
@@ -145,8 +133,6 @@ class DriveApiService:
             
             result = self._service.files().get(**request_params).execute()
             file_obj = utils.convert_api_file_to_correct_type(result)
-            
-            logger.info(f"Retrieved file: {file_obj.name}")
             return file_obj
 
         except HttpError as e:
@@ -156,11 +142,9 @@ class DriveApiService:
                 raise PermissionDeniedError(f"Permission denied for file: {item_id}")
             else:
                 error_msg = f"Failed to get file {item_id}: {e}"
-                logger.error(error_msg)
                 raise DriveError(error_msg)
         except Exception as e:
             error_msg = f"Unexpected error getting file {item_id}: {e}"
-            logger.error(error_msg)
             raise DriveError(error_msg)
 
     def upload_file(
@@ -209,8 +193,6 @@ class DriveApiService:
                 chunksize=DEFAULT_CHUNK_SIZE
             )
             
-            logger.debug(f"Uploading file: {file_path} as {file_name}")
-            
             result = self._service.files().create(
                 body=metadata,
                 media_body=media,
@@ -218,7 +200,6 @@ class DriveApiService:
             ).execute()
             
             file_obj = utils.convert_api_file_to_drive_file(result)
-            logger.info(f"Successfully uploaded file: {file_obj.name} ({file_obj.file_id})")
             return file_obj
 
         except HttpError as e:
@@ -228,11 +209,9 @@ class DriveApiService:
                 raise FileTooLargeError(f"File too large: {file_path}")
             else:
                 error_msg = f"Failed to upload file {file_path}: {e}"
-                logger.error(error_msg)
                 raise UploadFailedError(error_msg)
         except Exception as e:
             error_msg = f"Unexpected error uploading file {file_path}: {e}"
-            logger.error(error_msg)
             raise UploadFailedError(error_msg)
 
     def upload_file_content(
@@ -281,8 +260,6 @@ class DriveApiService:
                 resumable=True
             )
             
-            logger.debug(f"Uploading content as file: {name}")
-            
             result = self._service.files().create(
                 body=metadata,
                 media_body=media,
@@ -290,7 +267,6 @@ class DriveApiService:
             ).execute()
             
             file_obj = utils.convert_api_file_to_drive_file(result)
-            logger.info(f"Successfully uploaded content as file: {file_obj.name} ({file_obj.file_id})")
             return file_obj
 
         except HttpError as e:
@@ -298,11 +274,9 @@ class DriveApiService:
                 raise PermissionDeniedError(f"Permission denied uploading content: {e}")
             else:
                 error_msg = f"Failed to upload content as {name}: {e}"
-                logger.error(error_msg)
                 raise UploadFailedError(error_msg)
         except Exception as e:
             error_msg = f"Unexpected error uploading content as {name}: {e}"
-            logger.error(error_msg)
             raise UploadFailedError(error_msg)
 
     def download_file(self, file: DriveFile, dest_directory: str, file_name: str = None) -> str:
@@ -322,8 +296,6 @@ class DriveApiService:
             DownloadFailedError: If the download fails
             DriveError: If the API request fails
         """
-
-        logger.debug(f"Downloading file {file.file_id} to {dest_directory}")
 
         # Create directory if it doesn't exist
         os.makedirs(os.path.dirname(dest_directory), exist_ok=True)
@@ -353,7 +325,6 @@ class DriveApiService:
             DriveError: If the API request fails
         """
         try:
-            logger.debug(f"Downloading content of file: {file.file_id}")
             content_io = io.BytesIO()
 
             request = None
@@ -370,7 +341,6 @@ class DriveApiService:
                 status, done = downloader.next_chunk()
 
             content = content_io.getvalue()
-            logger.info(f"Successfully downloaded file content ({len(content)} bytes)")
             return content
 
         except HttpError as e:
@@ -380,11 +350,9 @@ class DriveApiService:
                 raise PermissionDeniedError(f"Permission denied downloading file: {file.file_id}")
             else:
                 error_msg = f"Failed to download file content {file.file_id}: {e}"
-                logger.error(error_msg)
                 raise DownloadFailedError(error_msg)
         except Exception as e:
             error_msg = f"Unexpected error downloading file content {file.file_id}: {e}"
-            logger.error(error_msg)
             raise DownloadFailedError(error_msg)
 
     def create_folder(
@@ -416,15 +384,12 @@ class DriveApiService:
                 mimeType=FOLDER_MIME_TYPE
             )
             
-            logger.debug(f"Creating folder: {name}")
-            
             result = self._service.files().create(
                 body=metadata,
                 fields=DEFAULT_FILE_FIELDS
             ).execute()
             
             folder_obj = utils.convert_api_file_to_drive_folder(result)
-            logger.info(f"Successfully created folder: {folder_obj.name} ({folder_obj.folder_id})")
             return folder_obj
 
         except HttpError as e:
@@ -432,11 +397,9 @@ class DriveApiService:
                 raise PermissionDeniedError(f"Permission denied creating folder: {e}")
             else:
                 error_msg = f"Failed to create folder {name}: {e}"
-                logger.error(error_msg)
                 raise DriveError(error_msg)
         except Exception as e:
             error_msg = f"Unexpected error creating folder {name}: {e}"
-            logger.error(error_msg)
             raise DriveError(error_msg)
 
     def delete(self, item: DriveItem) -> bool:
@@ -454,11 +417,7 @@ class DriveApiService:
             DriveError: If the API request fails
         """
         try:
-            logger.debug(f"Deleting item: {item.item_id}")
-            
             self._service.files().delete(fileId=item.item_id).execute()
-            
-            logger.info(f"Successfully deleted item: {item.item_id}")
             return True
 
         except HttpError as e:
@@ -468,11 +427,9 @@ class DriveApiService:
                 raise PermissionDeniedError(f"Permission denied deleting item: {item.item_id}")
             else:
                 error_msg = f"Failed to delete item {item.item_id}: {e}"
-                logger.error(error_msg)
                 raise DriveError(error_msg)
         except Exception as e:
             error_msg = f"Unexpected error deleting item {item.item_id}: {e}"
-            logger.error(error_msg)
             raise DriveError(error_msg)
 
     def copy(
@@ -503,8 +460,6 @@ class DriveApiService:
             if parent_folder:
                 metadata['parents'] = [parent_folder.folder_id]
             
-            logger.debug(f"Copying item: {item.item_id}")
-            
             result = self._service.files().copy(
                 fileId=item.item_id,
                 body=metadata,
@@ -512,7 +467,6 @@ class DriveApiService:
             ).execute()
             
             copied_item = utils.convert_api_file_to_correct_type(result)
-            logger.info(f"Successfully copied item: {copied_item.name} ({copied_item.item_id})")
             return copied_item
 
         except HttpError as e:
@@ -522,11 +476,9 @@ class DriveApiService:
                 raise PermissionDeniedError(f"Permission denied copying item: {item.item_id}")
             else:
                 error_msg = f"Failed to copy item {item.item_id}: {e}"
-                logger.error(error_msg)
                 raise DriveError(error_msg)
         except Exception as e:
             error_msg = f"Unexpected error copying item {item.item_id}: {e}"
-            logger.error(error_msg)
             raise DriveError(error_msg)
 
     def rename(
@@ -549,8 +501,6 @@ class DriveApiService:
             DriveError: If the API request fails
         """
         try:
-            logger.debug(f"Updating item metadata: {item.item_id}")
-            
             result = self._service.files().update(
                 fileId=item.item_id,
                 body={'name': utils.sanitize_filename(name)},
@@ -558,7 +508,6 @@ class DriveApiService:
             ).execute()
             
             updated_item = utils.convert_api_file_to_correct_type(result)
-            logger.info(f"Successfully renamed item: {updated_item.name}")
             return updated_item
 
         except HttpError as e:
@@ -568,11 +517,9 @@ class DriveApiService:
                 raise PermissionDeniedError(f"Permission denied renaming item: {item.item_id}")
             else:
                 error_msg = f"Failed to rename item {item.item_id}: {e}"
-                logger.error(error_msg)
                 raise DriveError(error_msg)
         except Exception as e:
             error_msg = f"Unexpected error renaming item {item.item_id}: {e}"
-            logger.error(error_msg)
             raise DriveError(error_msg)
 
     def share(
@@ -608,8 +555,6 @@ class DriveApiService:
                 'emailAddress': email
             }
             
-            logger.debug(f"Sharing item {item.item_id} with {email} as {role}")
-            
             result = self._service.permissions().create(
                 fileId=item.item_id,
                 body=permission_metadata,
@@ -619,7 +564,6 @@ class DriveApiService:
             ).execute()
             
             permission = utils.convert_api_permission_to_permission(result)
-            logger.info(f"Successfully shared item with {email}")
             return permission
 
         except HttpError as e:
@@ -629,11 +573,9 @@ class DriveApiService:
                 raise PermissionDeniedError(f"Permission denied sharing item: {item.item_id}")
             else:
                 error_msg = f"Failed to share item {item.item_id} with {email}: {e}"
-                logger.error(error_msg)
                 raise SharingError(error_msg)
         except Exception as e:
             error_msg = f"Unexpected error sharing item {item.item_id} with {email}: {e}"
-            logger.error(error_msg)
             raise SharingError(error_msg)
 
     def get_permissions(self, item: DriveItem) -> List[Permission]:
@@ -651,8 +593,6 @@ class DriveApiService:
             DriveError: If the API request fails
         """
         try:
-            logger.debug(f"Getting permissions for item: {item.item_id}")
-            
             result = self._service.permissions().list(
                 fileId=item.item_id,
                 fields='permissions(*)'
@@ -661,8 +601,6 @@ class DriveApiService:
             permissions_data = result.get('permissions', [])
             permissions = [utils.convert_api_permission_to_permission(perm) 
                          for perm in permissions_data]
-            
-            logger.info(f"Retrieved {len(permissions)} permissions for item {item.item_id}")
             return permissions
 
         except HttpError as e:
@@ -672,11 +610,9 @@ class DriveApiService:
                 raise PermissionDeniedError(f"Permission denied getting permissions: {item.item_id}")
             else:
                 error_msg = f"Failed to get permissions for item {item.item_id}: {e}"
-                logger.error(error_msg)
                 raise DriveError(error_msg)
         except Exception as e:
             error_msg = f"Unexpected error getting permissions for item {item.item_id}: {e}"
-            logger.error(error_msg)
             raise DriveError(error_msg)
 
     def remove_permission(self, item: DriveItem, permission_id: str) -> bool:
@@ -696,14 +632,10 @@ class DriveApiService:
             DriveError: If the API request fails
         """
         try:
-            logger.debug(f"Removing permission {permission_id} from item {item.item_id}")
-            
             self._service.permissions().delete(
                 fileId=item.item_id,
                 permissionId=permission_id
             ).execute()
-            
-            logger.info(f"Successfully removed permission {permission_id}")
             return True
 
         except HttpError as e:
@@ -713,11 +645,9 @@ class DriveApiService:
                 raise PermissionDeniedError(f"Permission denied removing permission")
             else:
                 error_msg = f"Failed to remove permission {permission_id}: {e}"
-                logger.error(error_msg)
                 raise DrivePermissionError(error_msg)
         except Exception as e:
             error_msg = f"Unexpected error removing permission {permission_id}: {e}"
-            logger.error(error_msg)
             raise DrivePermissionError(error_msg)
 
     def list_folder_contents(
@@ -762,14 +692,12 @@ class DriveApiService:
             
             contents = query_builder.execute()
             
-            logger.info(f"Retrieved {len(contents)} items from folder: {folder.name}")
             return contents
 
         except Exception as e:
             if "not found" in str(e).lower():
                 raise FolderNotFoundError(f"Folder not found: {folder.folder_id}")
             error_msg = f"Failed to list contents of folder {folder.folder_id}: {e}"
-            logger.error(error_msg)
             raise DriveError(error_msg)
 
     def move(
@@ -805,12 +733,9 @@ class DriveApiService:
             if remove_from_current_parents and item.parent_ids:
                 update_params['removeParents'] = ','.join(item.parent_ids)
             
-            logger.debug(f"Moving item {item.item_id} to folder {target_folder.folder_id}")
-            
             result = self._service.files().update(**update_params).execute()
             
             updated_item = utils.convert_api_file_to_correct_type(result)
-            logger.info(f"Successfully moved {item.name} to {target_folder.name}")
             return updated_item
 
         except HttpError as e:
@@ -820,11 +745,9 @@ class DriveApiService:
                 raise PermissionDeniedError(f"Permission denied moving file")
             else:
                 error_msg = f"Failed to move item {item.item_id}: {e}"
-                logger.error(error_msg)
                 raise DriveError(error_msg)
         except Exception as e:
             error_msg = f"Unexpected error moving item {item.item_id}: {e}"
-            logger.error(error_msg)
             raise DriveError(error_msg)
 
     def get_parent_folder(self, item: DriveItem) -> Optional[DriveFolder]:
@@ -851,20 +774,16 @@ class DriveApiService:
             ).execute()
             
             parent_folder = utils.convert_api_file_to_drive_folder(result)
-            logger.info(f"Retrieved parent folder: {parent_folder.name}")
             return parent_folder
 
         except HttpError as e:
             if e.resp.status == 404:
-                logger.warning(f"Parent folder {parent_id} not found")
                 return None
             else:
                 error_msg = f"Failed to get parent folder {parent_id}: {e}"
-                logger.error(error_msg)
                 raise DriveError(error_msg)
         except Exception as e:
             error_msg = f"Unexpected error getting parent folder {parent_id}: {e}"
-            logger.error(error_msg)
             raise DriveError(error_msg)
 
     def get_folder_by_path(self, path: str, root_folder_id: str = "root") -> Optional[DriveFolder]:
@@ -907,7 +826,6 @@ class DriveApiService:
                           .execute())
                 
                 if not folders:
-                    logger.info(f"Folder '{folder_name}' not found in path: {path}")
                     return None
                 
                 current_folder_id = folders[0].folder_id
@@ -919,12 +837,10 @@ class DriveApiService:
             ).execute()
             
             final_folder = utils.convert_api_file_to_drive_folder(result)
-            logger.info(f"Found folder at path '{path}': {final_folder.name}")
             return final_folder
 
         except Exception as e:
             error_msg = f"Failed to get folder by path '{path}': {e}"
-            logger.error(error_msg)
             raise DriveError(error_msg)
 
     def create_folder_path(
@@ -966,7 +882,6 @@ class DriveApiService:
                 
                 if existing_folders:
                     current_folder_id = existing_folders[0].item_id
-                    logger.debug(f"Folder '{folder_name}' already exists")
                 else:
                     # Create the folder - get parent folder object first
                     folder_desc = description if i == len(folder_names) - 1 else None
@@ -986,7 +901,6 @@ class DriveApiService:
                         description=folder_desc
                     )
                     current_folder_id = new_folder.folder_id
-                    logger.info(f"Created folder: {folder_name}")
             
             # Return the final folder
             result = self._service.files().get(
@@ -995,12 +909,10 @@ class DriveApiService:
             ).execute()
             
             final_folder = utils.convert_api_file_to_drive_folder(result)
-            logger.info(f"Created/found folder path '{path}': {final_folder.name}")
             return final_folder
 
         except Exception as e:
             error_msg = f"Failed to create folder path '{path}': {e}"
-            logger.error(error_msg)
             raise DriveError(error_msg)
 
     def move_to_trash(self, item: DriveItem) -> DriveItem:
@@ -1015,8 +927,6 @@ class DriveApiService:
             DriveError: If the API request fails
         """
         try:
-            logger.debug(f"Moving item to trash: {item.item_id}")
-            
             result = self._service.files().update(
                 fileId=item.item_id,
                 body={'trashed': True},
@@ -1024,7 +934,6 @@ class DriveApiService:
             ).execute()
             
             updated_item = utils.convert_api_file_to_correct_type(result)
-            logger.info(f"Successfully moved item to trash: {updated_item.name}")
             return updated_item
 
         except HttpError as e:
@@ -1032,11 +941,9 @@ class DriveApiService:
                 raise FileNotFoundError(f"Item not found: {item.item_id}")
             else:
                 error_msg = f"Failed to move item to trash {item.item_id}: {e}"
-                logger.error(error_msg)
                 raise DriveError(error_msg)
         except Exception as e:
             error_msg = f"Unexpected error moving item to trash {item.item_id}: {e}"
-            logger.error(error_msg)
             raise DriveError(error_msg)
 
     def get_directory_tree(
@@ -1106,21 +1013,17 @@ class DriveApiService:
                         
             except (FolderNotFoundError, PermissionDeniedError) as e:
                 # Handle permission errors gracefully
-                logger.warning(f"Cannot access folder {current_folder.name}: {e}")
                 node['children'] = None
                 node['error'] = str(e)
             
             return node
         
         try:
-            logger.debug(f"Building directory tree for folder: {folder.name}")
             tree = _build_tree_recursive(folder, 0)
-            logger.info(f"Successfully built directory tree for: {folder.name}")
             return tree
             
         except Exception as e:
             error_msg = f"Failed to build directory tree: {e}"
-            logger.error(error_msg)
             raise DriveError(error_msg)
 
     def print_directory_tree(
@@ -1135,7 +1038,7 @@ class DriveApiService:
     ) -> None:
         """
         Print visual tree representation of folder structure.
-        
+
         Args:
             folder: DriveFolder to print tree structure for
             max_depth: Maximum depth to traverse
@@ -1225,7 +1128,6 @@ class DriveApiService:
             print(f"{error_prefix}❌ Access denied: {e}")
         except Exception as e:
             error_msg = f"Error displaying folder contents: {e}"
-            logger.error(error_msg)
             if _current_depth == 0:
                 raise DriveError(error_msg)
 

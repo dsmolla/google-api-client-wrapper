@@ -23,7 +23,7 @@ class Attendee:
         if not self.email:
             raise ValueError("Attendee email cannot be empty.")
         if not self._is_valid_email(self.email):
-            raise ValueError(f"Invalid email format: {self.email}")
+            raise ValueError("Invalid email format - email address validation failed")
         if self.response_status and self.response_status not in ["needsAction", "declined", "tentative", "accepted"]:
             raise ValueError(f"Invalid response status: {self.response_status}. Must be one of: needsAction, declined, tentative, accepted")
     

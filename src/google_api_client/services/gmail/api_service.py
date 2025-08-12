@@ -1,19 +1,15 @@
 import base64
 import os
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, overload, Union
 
 from googleapiclient.errors import HttpError
 
 from ...utils.datetime import convert_datetime_to_readable
-from ...utils.log_sanitizer import sanitize_for_logging
-import logging
 
 from .types import EmailMessage, EmailAttachment, Label, EmailThread
 from .query_builder import EmailQueryBuilder
 from . import utils
 from .constants import DEFAULT_MAX_RESULTS, MAX_RESULTS_LIMIT
-
-logger = logging.getLogger(__name__)
 
 # Import exceptions from centralized location
 from .exceptions import GmailError, GmailPermissionError, AttachmentNotFoundError
@@ -76,11 +72,7 @@ class GmailApiService:
         if max_results and (max_results < 1 or max_results > MAX_RESULTS_LIMIT):
             raise ValueError(f"max_results must be between 1 and {MAX_RESULTS_LIMIT}")
 
-        sanitized = sanitize_for_logging(query=query, max_results=max_results,
-                                         include_spam_trash=include_spam_trash, label_ids=label_ids)
-        logger.info("Fetching messages with max_results=%s, query=%s, include_spam_trash=%s, label_ids=%s",
-                    sanitized['max_results'], sanitized['query'], sanitized['include_spam_trash'],
-                    sanitized['label_ids'])
+
 
 
         # Get list of message IDs
@@ -99,7 +91,6 @@ class GmailApiService:
             result = self._service.users().messages().list(**request_params).execute()
             messages = result.get('messages', [])
 
-            logger.info("Found %d message IDs", len(messages))
 
             # Fetch full message details
             email_messages = []
@@ -107,13 +98,11 @@ class GmailApiService:
                 try:
                     email_messages.append(self.get_email(message['id']))
                 except Exception as e:
-                    logger.warning("Failed to fetch message: %s", e)
+                    pass
 
-            logger.info("Successfully fetched %d complete messages", len(email_messages))
             return email_messages
 
         except Exception as e:
-            logger.error("An error occurred while fetching messages: %s", e)
             raise
 
     def get_email(self, message_id: str) -> EmailMessage:
@@ -126,7 +115,6 @@ class GmailApiService:
         Returns:
             An EmailMessage object representing the message with the specified ID.
         """
-        logger.info("Retrieving message with ID: %s", message_id)
 
         try:
             gmail_message = self._service.users().messages().get(
@@ -134,10 +122,8 @@ class GmailApiService:
                 id=message_id,
                 format='full'
             ).execute()
-            logger.info("Message retrieved successfully")
             return utils.from_gmail_message(gmail_message)
         except Exception as e:
-            logger.error("Error retrieving message: %s", e)
             raise
 
     def send_email(
@@ -171,8 +157,7 @@ class GmailApiService:
         Returns:
             An EmailMessage object representing the message sent.
         """
-        sanitized = sanitize_for_logging(subject=subject, to=to)
-        logger.info("Sending message with subject=%s, to=%s", sanitized['subject'], sanitized['to'])
+        
 
         # Create message
         raw_message = utils.create_message(
@@ -194,11 +179,9 @@ class GmailApiService:
                 body={'raw': raw_message, 'threadId': thread_id}
             ).execute()
 
-            logger.info("Message sent successfully with ID: %s", send_result.get('id'))
             return self.get_email(send_result['id'])
 
         except Exception as e:
-            logger.error("Error sending message: %s", e)
             raise
 
     def batch_get_emails(self, message_ids: List[str]) -> List["EmailMessage"]:
@@ -211,14 +194,13 @@ class GmailApiService:
         Returns:
             List of EmailMessage objects
         """
-        logger.info("Batch retrieving %d messages", len(message_ids))
 
         email_messages = []
         for message_id in message_ids:
             try:
                 email_messages.append(self.get_email(message_id))
             except Exception as e:
-                logger.warning("Failed to fetch message %s: %s", message_id, e)
+                pass
 
         return email_messages
 
@@ -232,14 +214,13 @@ class GmailApiService:
         Returns:
             List of sent EmailMessage objects
         """
-        logger.info("Batch sending %d emails", len(email_data_list))
 
         sent_messages = []
         for email_data in email_data_list:
             try:
                 sent_messages.append(self.send_email(**email_data))
             except Exception as e:
-                logger.warning("Failed to send email: %s", e)
+                pass
 
         return sent_messages
 
@@ -267,7 +248,6 @@ class GmailApiService:
         else:
             to = [original_email.sender.email]
 
-        logger.info("Replying to message %s", original_email.message_id)
         
         # Build enhanced references header
         enhanced_references = utils.build_references_header(original_email)
@@ -300,7 +280,7 @@ class GmailApiService:
         Returns:
             An EmailMessage object representing the forwarded message
         """
-        logger.info("Forwarding message %s to %s", original_email.message_id, to)
+        sanitized = sanitize_for_logging(to=to)
         
         # Prepare subject with Fwd: prefix
         subject = f"Fwd: {original_email.subject}" if original_email.subject else "Fwd:"
@@ -336,11 +316,9 @@ class GmailApiService:
                 body={'raw': raw_message}
             ).execute()
             
-            logger.info("Message forwarded successfully with ID: %s", send_result.get('id'))
             return self.get_email(send_result['id'])
             
         except Exception as e:
-            logger.error("Error forwarding message: %s", e)
             raise
 
     def mark_as_read(self, email: EmailMessage) -> bool:
@@ -353,7 +331,6 @@ class GmailApiService:
         Returns:
             True if the operation was successful, False otherwise.
         """
-        logger.info("Marking message as read: %s", email.message_id)
 
         try:
             self._service.users().messages().modify(
@@ -362,10 +339,8 @@ class GmailApiService:
                 body={'removeLabelIds': ['UNREAD']}
             ).execute()
             email.is_read = True
-            logger.info("Message marked as read successfully")
             return True
         except Exception as e:
-            logger.error("Error marking message as read: %s", e)
             return False
 
     def mark_as_unread(self, email: EmailMessage) -> bool:
@@ -378,7 +353,6 @@ class GmailApiService:
         Returns:
             True if the operation was successful, False otherwise.
         """
-        logger.info("Marking message as unread: %s", email.message_id)
 
         try:
             self._service.users().messages().modify(
@@ -387,10 +361,8 @@ class GmailApiService:
                 body={'addLabelIds': ['UNREAD']}
             ).execute()
             email.is_read = False
-            logger.info("Message marked as unread successfully")
             return True
         except Exception as e:
-            logger.error("Error marking message as unread: %s", e)
             return False
 
     def add_label(self, email: EmailMessage, labels: List[str]) -> bool:
@@ -404,7 +376,6 @@ class GmailApiService:
         Returns:
             True if the operation was successful, False otherwise.
         """
-        logger.info("Adding labels %s to message: %s", labels, email.message_id)
 
 
         try:
@@ -418,10 +389,8 @@ class GmailApiService:
                 if label not in email.labels:
                     email.labels.append(label)
                     break
-            logger.info("Labels added successfully")
             return True
         except Exception as e:
-            logger.error("Error adding labels: %s", e)
             return False
 
     def remove_label(self, email: EmailMessage, labels: List[str]) -> bool:
@@ -435,7 +404,6 @@ class GmailApiService:
         Returns:
             True if the operation was successful, False otherwise.
         """
-        logger.info("Removing labels %s from message: %s", labels, email.message_id)
 
         try:
             self._service.users().messages().modify(
@@ -449,10 +417,8 @@ class GmailApiService:
                     email.labels.remove(label)
                 except ValueError:
                     continue
-            logger.info("Labels removed successfully")
             return True
         except Exception as e:
-            logger.error("Error removing labels: %s", e)
             return False
 
     def delete_email(self, email: EmailMessage, permanent: bool = False) -> bool:
@@ -466,18 +432,14 @@ class GmailApiService:
         Returns:
             True if the operation was successful, False otherwise.
         """
-        logger.info("Deleting message: %s, permanent=%s", email.message_id, permanent)
 
         try:
             if permanent:
                 self._service.users().messages().delete(userId='me', id=email.message_id).execute()
-                logger.info("Message permanently deleted")
             else:
                 self._service.users().messages().trash(userId='me', id=email.message_id).execute()
-                logger.info("Message moved to trash")
             return True
         except Exception as e:
-            logger.error("Error deleting message: %s", e)
             return False
 
     def get_attachment_payload(self, attachment: EmailAttachment) -> bytes:
@@ -496,12 +458,10 @@ class GmailApiService:
             os.makedirs(download_folder)
 
         try:
-            logger.info("Downloading attachment %s", attachment.attachment_id)
 
             with open(os.path.join(download_folder, attachment.filename), 'wb') as f:
                 f.write(self.get_attachment_payload(attachment))
 
-            logger.info("Finished downloading attachment %s", attachment.attachment_id)
 
         except HttpError as e:
             if e.resp.status == 403:
@@ -511,12 +471,8 @@ class GmailApiService:
             else:
                 raise GmailError(f"Gmail API error downloading attachment: {e}")
         except (ValueError, KeyError) as e:
-            logger.error("Invalid attachment data format.")
-            logger.debug("Attachment data error: %s", str(e)[:100])
             raise GmailError(f"Invalid attachment data: {e}")
         except Exception as e:
-            logger.error("Unexpected error downloading attachment.")
-            logger.debug("Attachment download error: %s", str(e)[:100])
             raise
 
     def create_label(self, name: str) -> "Label":
@@ -528,7 +484,7 @@ class GmailApiService:
         Returns:
             A Label object representing the created label including its ID, name, and type.
         """
-        logger.info("Creating label with name: %s", name)
+        sanitized_name = name if len(name) <= 20 else f"{name[:20]}...({len(name)} chars)"
 
         try:
             label = self._service.users().labels().create(
@@ -541,7 +497,6 @@ class GmailApiService:
                 type=label.get('type', 'user')
             )
         except Exception as e:
-            logger.error("Error creating label: %s", e)
             raise
 
     def list_labels(self) -> List["Label"]:
@@ -550,12 +505,10 @@ class GmailApiService:
         Returns:
             A list of Label objects representing the labels.
         """
-        logger.info("Fetching labels from Gmail")
 
         try:
             labels_response = self._service.users().labels().list(userId='me').execute()
             labels = labels_response.get('labels', [])
-            logger.info("Found %d labels", len(labels))
 
             labels_list = []
             for label in labels:
@@ -570,27 +523,31 @@ class GmailApiService:
             return labels_list
 
         except Exception as e:
-            logger.error("Failed to fetch labels: %s", e)
             raise
 
-    def delete_label(self, label: Label) -> bool:
+    @overload
+    def delete_label(self, label_id: str) -> bool: ...
+    @overload
+    def delete_label(self, label: Label) -> bool: ...
+
+    def delete_label(self, label: Union[Label, str]) -> bool:
         """
         Deletes this label.
 
         Args:
-            label: The label to delete.
+            label: The label or label id to delete
 
         Returns:
             True if the label was successfully deleted, False otherwise.
         """
-        logger.info("Deleting label with ID: %s", label.id)
+
+        if isinstance(label, Label):
+            label = label.id
 
         try:
-            self._service.users().labels().delete(userId='me', id=label.id).execute()
-            logger.info("Label deleted successfully")
+            self._service.users().labels().delete(userId='me', id=label).execute()
             return True
         except Exception as e:
-            logger.error("Error deleting label: %s", e)
             return False
 
     def update_label(self, label: Label, new_name: str) -> "Label":
@@ -603,7 +560,6 @@ class GmailApiService:
         Returns:
             The updated Label object.
         """
-        logger.info("Updating label %s to new name: %s", label.id, new_name)
 
         try:
             updated_label = self._service.users().labels().patch(
@@ -614,7 +570,6 @@ class GmailApiService:
             label.name = updated_label.get('name')
             return label
         except Exception as e:
-            logger.error("Error updating label: %s", e)
             raise
 
     def list_threads(
@@ -640,11 +595,7 @@ class GmailApiService:
         if max_results and (max_results < 1 or max_results > MAX_RESULTS_LIMIT):
             raise ValueError(f"max_results must be between 1 and {MAX_RESULTS_LIMIT}")
 
-        sanitized = sanitize_for_logging(query=query, max_results=max_results,
-                                         include_spam_trash=include_spam_trash, label_ids=label_ids)
-        logger.info("Fetching threads with max_results=%s, query=%s, include_spam_trash=%s, label_ids=%s",
-                    sanitized['max_results'], sanitized['query'], sanitized['include_spam_trash'],
-                    sanitized['label_ids'])
+
 
         # Get list of thread IDs
         request_params = {
@@ -662,7 +613,6 @@ class GmailApiService:
             result = self._service.users().threads().list(**request_params).execute()
             threads = result.get('threads', [])
 
-            logger.info("Found %d thread IDs", len(threads))
 
             # Fetch full thread details
             email_threads = []
@@ -670,13 +620,11 @@ class GmailApiService:
                 try:
                     email_threads.append(self.get_thread(thread['id']))
                 except Exception as e:
-                    logger.warning("Failed to fetch thread: %s", e)
+                    pass
 
-            logger.info("Successfully fetched %d complete threads", len(email_threads))
             return email_threads
 
         except Exception as e:
-            logger.error("An error occurred while fetching threads: %s", e)
             raise
 
     def get_thread(self, thread_id: str) -> EmailThread:
@@ -689,7 +637,6 @@ class GmailApiService:
         Returns:
             An EmailThread object representing the thread with all its messages.
         """
-        logger.info("Retrieving thread with ID: %s", thread_id)
 
         try:
             gmail_thread = self._service.users().threads().get(
@@ -697,10 +644,8 @@ class GmailApiService:
                 id=thread_id,
                 format='full'
             ).execute()
-            logger.info("Thread retrieved successfully")
             return utils.from_gmail_thread(gmail_thread)
         except Exception as e:
-            logger.error("Error retrieving thread: %s", e)
             raise
 
     def delete_thread(self, thread: EmailThread, permanent: bool = False) -> bool:
@@ -714,18 +659,14 @@ class GmailApiService:
         Returns:
             True if the operation was successful, False otherwise.
         """
-        logger.info("Deleting thread: %s, permanent=%s", thread.thread_id, permanent)
 
         try:
             if permanent:
                 self._service.users().threads().delete(userId='me', id=thread.thread_id).execute()
-                logger.info("Thread permanently deleted")
             else:
                 self._service.users().threads().trash(userId='me', id=thread.thread_id).execute()
-                logger.info("Thread moved to trash")
             return True
         except Exception as e:
-            logger.error("Error deleting thread: %s", e)
             return False
 
     def modify_thread_labels(self, thread: EmailThread, add_labels: Optional[List[str]] = None, 
@@ -741,10 +682,8 @@ class GmailApiService:
         Returns:
             True if the operation was successful, False otherwise.
         """
-        logger.info("Modifying labels for thread: %s", thread.thread_id)
 
         if not add_labels and not remove_labels:
-            logger.warning("No labels specified for modification")
             return True
 
         try:
@@ -760,10 +699,8 @@ class GmailApiService:
                 body=body
             ).execute()
             
-            logger.info("Thread labels modified successfully")
             return True
         except Exception as e:
-            logger.error("Error modifying thread labels: %s", e)
             return False
 
     def untrash_thread(self, thread: EmailThread) -> bool:
@@ -776,13 +713,10 @@ class GmailApiService:
         Returns:
             True if the operation was successful, False otherwise.
         """
-        logger.info("Untrashing thread: %s", thread.thread_id)
 
         try:
             self._service.users().threads().untrash(userId='me', id=thread.thread_id).execute()
-            logger.info("Thread untrashed successfully")
             return True
         except Exception as e:
-            logger.error("Error untrashing thread: %s", e)
             return False
 

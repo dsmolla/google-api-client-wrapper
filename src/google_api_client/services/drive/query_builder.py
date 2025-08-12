@@ -1,14 +1,11 @@
 from datetime import datetime, date
 from typing import Optional, List, Union, TYPE_CHECKING
-import logging
 
 from .constants import FOLDER_MIME_TYPE, MAX_RESULTS_LIMIT, DEFAULT_MAX_RESULTS
 from ...utils.datetime import convert_datetime_to_iso
 
 if TYPE_CHECKING:
     from .api_service import DriveItem, DriveFolder
-
-logger = logging.getLogger(__name__)
 
 
 class DriveQueryBuilder:
@@ -378,8 +375,6 @@ class DriveQueryBuilder:
             List of DriveItem objects matching the query
         """
         query = self._build_query()
-        
-        logger.debug(f"Executing Drive query: {query}")
         
         return self._api_service.list(
             query=query,

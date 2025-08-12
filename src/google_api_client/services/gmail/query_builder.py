@@ -1,12 +1,9 @@
 from datetime import datetime, date, timedelta
 from typing import Optional, List, TYPE_CHECKING
-import logging
 
 if TYPE_CHECKING:
     from .api_service import EmailMessage
     from .types import EmailThread
-
-logger = logging.getLogger(__name__)
 
 # Constants (imported from gmail_client)
 MAX_RESULTS_LIMIT = 2500
@@ -333,7 +330,7 @@ class EmailQueryBuilder:
         """
         query_string = " ".join(self._query_parts) if self._query_parts else None
         
-        logger.info("Executing email query: %s", query_string)
+
         
         # Use the service layer implementation instead of dataclass methods
         emails = self._api_service.list_emails(
@@ -394,7 +391,7 @@ class EmailQueryBuilder:
         """
         query_string = " ".join(self._query_parts) if self._query_parts else None
         
-        logger.info("Executing thread query: %s", query_string)
+        
         
         # Use the service layer implementation to get threads
         threads = self._api_service.list_threads(

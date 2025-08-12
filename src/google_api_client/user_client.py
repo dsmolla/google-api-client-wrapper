@@ -18,14 +18,12 @@ from .services.tasks.api_service import TasksApiService
 from .services.drive.api_service import DriveApiService
 
 
-SCOPES = [
-    'https://www.googleapis.com/auth/calendar',
-    'https://mail.google.com/',
-    'https://www.googleapis.com/auth/tasks',
-    'https://www.googleapis.com/auth/drive'
-]
-
-CREDENTIALS_PATH = r"C:\Users\dagms\Projects\Credentials\credentials.json"
+# SCOPES = [
+#     'https://www.googleapis.com/auth/calendar',
+#     'https://mail.google.com/',
+#     'https://www.googleapis.com/auth/tasks',
+#     'https://www.googleapis.com/auth/drive'
+# ]
 
 
 class UserClient:
@@ -87,7 +85,7 @@ class UserClient:
         Returns:
             tuple: (UserClient instance, updated_token_data_to_store)
         """
-        scopes = scopes or SCOPES
+        scopes = scopes
         creds = None
 
         # Try to load existing credentials from memory
@@ -134,8 +132,8 @@ class UserClient:
 
         """
 
-        credentials_path = credentials_path or CREDENTIALS_PATH
-        scopes = scopes or SCOPES
+        credentials_path = credentials_path
+        scopes = scopes
 
         creds = None
 

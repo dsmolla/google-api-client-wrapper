@@ -1,7 +1,6 @@
 import re
 from datetime import datetime
 from typing import Optional, List, Dict, Any
-import logging
 
 from .types import CalendarEvent, Attendee
 from .constants import (
@@ -10,41 +9,9 @@ from .constants import (
 )
 from ...utils.datetime import convert_datetime_to_iso
 
-logger = logging.getLogger(__name__)
 
-
-def is_valid_email(email: str) -> bool:
-    """Validate email format using regex."""
-    pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
-    return re.match(pattern, email) is not None
-
-
-def validate_text_field(value: Optional[str], max_length: int, field_name: str) -> None:
-    """Validates text field length and content."""
-    if value and len(value) > max_length:
-        raise ValueError(f"Event {field_name} cannot exceed {max_length} characters")
-
-
-def sanitize_header_value(value: str) -> str:
-    """
-    Sanitize a string value for safe use in API requests.
-    
-    Args:
-        value: The string to sanitize
-    
-    Returns:
-        Sanitized string safe for use in API calls
-    """
-    if not value:
-        return ""
-    
-    # Remove control characters that could cause issues
-    sanitized = re.sub(r'[\r\n\x00-\x1f\x7f-\x9f]', '', value)
-    
-    # Remove any quotes that could break the structure
-    sanitized = sanitized.replace('"', '')
-    
-    return sanitized.strip()
+# Import from shared utilities
+from ...utils.validation import is_valid_email, validate_text_field, sanitize_header_value
 
 
 def validate_datetime_range(start: Optional[datetime], end: Optional[datetime]) -> None:
@@ -76,8 +43,8 @@ def parse_datetime_from_api(datetime_data: Dict[str, Any]) -> Optional[datetime]
         elif datetime_data.get("date"):
             # Handle all-day events (date only)
             return datetime.strptime(datetime_data["date"], "%Y-%m-%d")
-    except (ValueError, TypeError) as e:
-        logger.warning("Failed to parse datetime: %s", e)
+    except (ValueError, TypeError):
+        pass
         
     return None
 
@@ -100,7 +67,6 @@ def parse_attendees_from_api(attendees_data: List[Dict[str, Any]]) -> List[Atten
             try:
                 response_status = attendee_data.get("responseStatus")
                 if response_status and response_status not in VALID_RESPONSE_STATUSES:
-                    logger.warning("Invalid response status: %s, setting to None", response_status)
                     response_status = None
                     
                 attendees.append(Attendee(
@@ -108,8 +74,8 @@ def parse_attendees_from_api(attendees_data: List[Dict[str, Any]]) -> List[Atten
                     display_name=attendee_data.get("displayName"),
                     response_status=response_status
                 ))
-            except ValueError as e:
-                logger.warning("Skipping invalid attendee: %s", e)
+            except ValueError:
+                pass
                 
     return attendees
 
@@ -154,7 +120,6 @@ def from_google_event(google_event: Dict[str, Any]) -> CalendarEvent:
         # Parse status
         status = google_event.get("status", "confirmed")
         if status not in VALID_EVENT_STATUSES:
-            logger.warning("Invalid event status: %s, defaulting to confirmed", status)
             status = "confirmed"
         
         # Create and return the event
@@ -177,9 +142,7 @@ def from_google_event(google_event: Dict[str, Any]) -> CalendarEvent:
         return event
         
     except Exception as e:
-        logger.error("Failed to parse Google Calendar event: %s", e)
-        logger.debug("Event data: %s", str(google_event)[:500])
-        raise ValueError(f"Invalid event data: {e}")
+        raise ValueError("Invalid event data - failed to parse calendar event")
 
 
 def create_event_body(
