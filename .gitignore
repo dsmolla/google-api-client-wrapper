@@ -3,9 +3,6 @@ __pycache__/
 *.py[cod]
 *$py.class
 
-# Markdown files
-*.md
-
 # C extensions
 *.so
 
