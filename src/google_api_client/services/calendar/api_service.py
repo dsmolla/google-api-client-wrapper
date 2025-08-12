@@ -4,9 +4,9 @@ from typing import Optional, List, Any, Dict
 from googleapiclient.errors import HttpError
 
 from ...utils.datetime import convert_datetime_to_iso, today_start
-from .types import CalendarEvent, Attendee
+from .types import CalendarEvent, Attendee, FreeBusyResponse, TimeSlot
 from . import utils
-from .constants import DEFAULT_MAX_RESULTS, MAX_RESULTS_LIMIT, DEFAULT_CALENDAR_ID
+from .constants import DEFAULT_MAX_RESULTS, MAX_RESULTS_LIMIT, DEFAULT_CALENDAR_ID, DEFAULT_FREEBUSY_DURATION_MINUTES
 from .exceptions import (
     CalendarError, CalendarPermissionError, EventNotFoundError,
     CalendarNotFoundError, EventConflictError, InvalidEventDataError
@@ -114,13 +114,13 @@ class CalendarApiService:
 
         except HttpError as e:
             if e.resp.status == 403:
-                raise CalendarPermissionError(f"Permission denied: {e}")
+                raise CalendarPermissionError(f"Permission denied")
             elif e.resp.status == 404:
-                raise CalendarNotFoundError(f"Calendar not found: {e}")
+                raise CalendarNotFoundError(f"Calendar not found")
             else:
-                raise CalendarError(f"Calendar API error listing events: {e}")
+                raise CalendarError(f"Calendar API error listing events")
         except Exception as e:
-            raise CalendarError(f"Unexpected error listing events: {e}")
+            raise CalendarError(f"Unexpected error listing events")
 
     def get_event(self, event_id: str, calendar_id: str = DEFAULT_CALENDAR_ID) -> CalendarEvent:
         """
@@ -144,13 +144,13 @@ class CalendarApiService:
             
         except HttpError as e:
             if e.resp.status == 404:
-                raise EventNotFoundError(f"Event not found: {event_id}")
+                raise EventNotFoundError(f"Event not found")
             elif e.resp.status == 403:
-                raise CalendarPermissionError(f"Permission denied accessing event: {e}")
+                raise CalendarPermissionError(f"Permission denied accessing event")
             else:
-                raise CalendarError(f"Calendar API error getting event {event_id}: {e}")
+                raise CalendarError(f"Calendar API error getting event")
         except Exception as e:
-            raise CalendarError(f"Unexpected error getting event: {e}")
+            raise CalendarError(f"Unexpected error getting event")
 
     def create_event(
             self,
@@ -204,15 +204,15 @@ class CalendarApiService:
             
         except HttpError as e:
             if e.resp.status == 403:
-                raise CalendarPermissionError(f"Permission denied creating event: {e}")
+                raise CalendarPermissionError(f"Permission denied creating event")
             elif e.resp.status == 409:
-                raise EventConflictError(f"Event conflict: {e}")
+                raise EventConflictError(f"Event conflict")
             else:
-                raise CalendarError(f"Calendar API error creating event: {e}")
+                raise CalendarError(f"Calendar API error creating event")
         except ValueError as e:
-            raise InvalidEventDataError(f"Invalid event data: {e}")
+            raise InvalidEventDataError(f"Invalid event data")
         except Exception as e:
-            raise CalendarError(f"Unexpected error creating event: {e}")
+            raise CalendarError(f"Unexpected error creating event")
 
     def update_event(
             self,
@@ -256,17 +256,17 @@ class CalendarApiService:
             
         except HttpError as e:
             if e.resp.status == 404:
-                raise EventNotFoundError(f"Event not found: {event.event_id}")
+                raise EventNotFoundError(f"Event not found")
             elif e.resp.status == 403:
-                raise CalendarPermissionError(f"Permission denied updating event: {e}")
+                raise CalendarPermissionError(f"Permission denied updating event")
             elif e.resp.status == 409:
-                raise EventConflictError(f"Event conflict during update: {e}")
+                raise EventConflictError(f"Event conflict during update")
             else:
-                raise CalendarError(f"Calendar API error updating event {event.event_id}: {e}")
+                raise CalendarError(f"Calendar API error updating event")
         except ValueError as e:
-            raise InvalidEventDataError(f"Invalid event data: {e}")
+            raise InvalidEventDataError(f"Invalid event data")
         except Exception as e:
-            raise CalendarError(f"Unexpected error updating event: {e}")
+            raise CalendarError(f"Unexpected error updating event")
 
     def delete_event(
             self,
@@ -294,13 +294,13 @@ class CalendarApiService:
             
         except HttpError as e:
             if e.resp.status == 404:
-                raise EventNotFoundError(f"Event not found: {event.event_id}")
+                raise EventNotFoundError(f"Event not found")
             elif e.resp.status == 403:
-                raise CalendarPermissionError(f"Permission denied deleting event: {e}")
+                raise CalendarPermissionError(f"Permission denied deleting event")
             else:
-                raise CalendarError(f"Calendar API error deleting event {event.event_id}: {e}")
+                raise CalendarError(f"Calendar API error deleting event")
         except Exception as e:
-            raise CalendarError(f"Unexpected error deleting event: {e}")
+            raise CalendarError(f"Unexpected error deleting event")
 
     def batch_get_events(self, event_ids: List[str], calendar_id: str = DEFAULT_CALENDAR_ID) -> List[CalendarEvent]:
         """
@@ -343,3 +343,111 @@ class CalendarApiService:
                 pass
 
         return created_events
+
+    def get_freebusy(
+        self,
+        start: datetime,
+        end: datetime,
+        calendar_ids: Optional[List[str]] = None,
+    ) -> FreeBusyResponse:
+        """
+        Query free/busy information for specified calendars and time range.
+        
+        Args:
+            start: Start datetime for the query
+            end: End datetime for the query  
+            calendar_ids: List of calendar IDs to query (defaults to primary calendar)
+
+        Returns:
+            FreeBusyResponse object containing availability information
+            
+        Raises:
+            CalendarError: If the API request fails
+            ValueError: If the parameters are invalid
+        """
+        if calendar_ids is None:
+            calendar_ids = [DEFAULT_CALENDAR_ID]
+        
+        # Validate the request parameters
+        utils.validate_freebusy_request(start, end, calendar_ids)
+        
+        try:
+            # Make the API call
+            request_body = {
+                "timeMin": convert_datetime_to_iso(start),
+                "timeMax": convert_datetime_to_iso(end),
+                "items": [{"id": cal_id} for cal_id in calendar_ids]
+            }
+
+            result = self._service.freebusy().query(body=request_body).execute()
+            
+            # Parse and return the response
+            return utils.parse_freebusy_response(result)
+            
+        except HttpError as e:
+            if e.resp.status == 403:
+                raise CalendarPermissionError("Permission denied for freebusy query")
+            elif e.resp.status == 404:
+                raise CalendarNotFoundError("One or more calendars not found")
+            else:
+                raise CalendarError(f"Calendar API error during freebusy query")
+        except ValueError as e:
+            raise ValueError(f"Invalid freebusy request")
+        except Exception as e:
+            raise CalendarError(f"Unexpected error during freebusy query")
+
+    def find_free_slots(
+        self,
+        start: datetime,
+        end: datetime,
+        duration_minutes: int = DEFAULT_FREEBUSY_DURATION_MINUTES,
+        calendar_ids: Optional[List[str]] = None
+    ) -> List[TimeSlot]:
+        """
+        Find all available time slots of a specified duration within a time range.
+        
+        Args:
+            start: Start datetime for the search
+            end: End datetime for the search
+            duration_minutes: Minimum duration for free slots in minutes
+            calendar_ids: List of calendar IDs to check (defaults to primary calendar)
+            
+        Returns:
+            List of TimeSlot objects representing available time slots
+            
+        Raises:
+            CalendarError: If the API request fails
+            ValueError: If the parameters are invalid
+        """
+        from .constants import MIN_TIME_SLOT_DURATION_MINUTES, MAX_TIME_SLOT_DURATION_MINUTES
+        
+        if duration_minutes < MIN_TIME_SLOT_DURATION_MINUTES:
+            raise ValueError(f"Duration must be at least {MIN_TIME_SLOT_DURATION_MINUTES} minutes")
+        if duration_minutes > MAX_TIME_SLOT_DURATION_MINUTES:
+            raise ValueError(f"Duration cannot exceed {MAX_TIME_SLOT_DURATION_MINUTES} minutes")
+        
+        # Get freebusy information
+        freebusy_response = self.get_freebusy(start, end, calendar_ids)
+        
+        # If multiple calendars, we need to find slots that are free in ALL calendars
+        if len(calendar_ids or [DEFAULT_CALENDAR_ID]) == 1:
+            calendar_id = calendar_ids[0] if calendar_ids else DEFAULT_CALENDAR_ID
+            return freebusy_response.get_free_slots(duration_minutes, calendar_id)
+        else:
+            # For multiple calendars, collect all busy periods from all calendars
+            all_busy_periods = []
+            for calendar_id in (calendar_ids or [DEFAULT_CALENDAR_ID]):
+                all_busy_periods.extend(freebusy_response.get_busy_periods(calendar_id))
+            
+            # Merge overlapping busy periods
+            merged_busy = utils.merge_overlapping_time_slots(all_busy_periods)
+            
+            # Create a temporary response with merged busy periods for the primary calendar
+            temp_response = FreeBusyResponse(
+                start=start,
+                end=end,
+                calendars={DEFAULT_CALENDAR_ID: merged_busy}
+            )
+            
+            return temp_response.get_free_slots(duration_minutes, DEFAULT_CALENDAR_ID)
+

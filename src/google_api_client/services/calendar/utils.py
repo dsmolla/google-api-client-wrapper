@@ -1,8 +1,7 @@
-import re
 from datetime import datetime
 from typing import Optional, List, Dict, Any
 
-from .types import CalendarEvent, Attendee
+from .types import CalendarEvent, Attendee, TimeSlot, FreeBusyResponse
 from .constants import (
     MAX_SUMMARY_LENGTH, MAX_DESCRIPTION_LENGTH, MAX_LOCATION_LENGTH,
     VALID_EVENT_STATUSES, VALID_RESPONSE_STATUSES
@@ -141,7 +140,7 @@ def from_google_event(google_event: Dict[str, Any]) -> CalendarEvent:
         
         return event
         
-    except Exception as e:
+    except Exception:
         raise ValueError("Invalid event data - failed to parse calendar event")
 
 
@@ -200,3 +199,140 @@ def create_event_body(
         event_body['recurrence'] = recurrence
         
     return event_body
+
+
+def parse_freebusy_response(freebusy_data: Dict[str, Any]) -> FreeBusyResponse:
+    """
+    Parse a freebusy response from Google Calendar API.
+    
+    Args:
+        freebusy_data: Dictionary containing freebusy response from API
+        
+    Returns:
+        FreeBusyResponse object with parsed data
+        
+    Raises:
+        ValueError: If the response data is invalid
+    """
+    if not freebusy_data:
+        raise ValueError("Empty freebusy response data")
+    
+    try:
+        # Parse time range
+        time_min = freebusy_data.get("timeMin")
+        time_max = freebusy_data.get("timeMax")
+        
+        if not time_min or not time_max:
+            raise ValueError("Missing timeMin or timeMax in freebusy response")
+        
+        # Parse start and end times
+        start = datetime.fromisoformat(time_min.replace('Z', '+00:00'))
+        end = datetime.fromisoformat(time_max.replace('Z', '+00:00'))
+        
+        # Parse calendar busy periods
+        calendars = {}
+        calendars_data = freebusy_data.get("calendars", {})
+        
+        for calendar_id, calendar_data in calendars_data.items():
+            busy_periods = []
+            busy_data = calendar_data.get("busy", [])
+            
+            for busy_period in busy_data:
+                period_start_str = busy_period.get("start")
+                period_end_str = busy_period.get("end")
+                
+                if period_start_str and period_end_str:
+                    try:
+                        period_start = datetime.fromisoformat(period_start_str.replace('Z', '+00:00'))
+                        period_end = datetime.fromisoformat(period_end_str.replace('Z', '+00:00'))
+                        busy_periods.append(TimeSlot(period_start, period_end))
+                    except (ValueError, TypeError):
+                        continue
+            
+            calendars[calendar_id] = busy_periods
+        
+        # Parse errors
+        errors = {}
+        errors_data = freebusy_data.get("errors", {})
+        
+        for calendar_id, error_data in errors_data.items():
+            if isinstance(error_data, list) and error_data:
+                error_reason = error_data[0].get("reason", "Unknown error")
+                errors[calendar_id] = error_reason
+            elif isinstance(error_data, str):
+                errors[calendar_id] = error_data
+        
+        return FreeBusyResponse(
+            start=start,
+            end=end,
+            calendars=calendars,
+            errors=errors
+        )
+        
+    except Exception as e:
+        raise ValueError(f"Failed to parse freebusy response: {str(e)}")
+
+
+def merge_overlapping_time_slots(time_slots: List[TimeSlot]) -> List[TimeSlot]:
+    """
+    Merge overlapping time slots into consolidated periods.
+    
+    Args:
+        time_slots: List of TimeSlot objects that may overlap
+        
+    Returns:
+        List of merged TimeSlot objects with no overlaps
+    """
+    if not time_slots:
+        return []
+    
+    # Sort by start time
+    sorted_slots = sorted(time_slots, key=lambda x: x.start)
+    merged = [sorted_slots[0]]
+    
+    for current in sorted_slots[1:]:
+        last_merged = merged[-1]
+        
+        # Check if current slot overlaps with the last merged slot
+        if current.start <= last_merged.end:
+            # Merge by extending the end time if necessary
+            if current.end > last_merged.end:
+                merged[-1] = TimeSlot(last_merged.start, current.end)
+        else:
+            # No overlap, add as new slot
+            merged.append(current)
+    
+    return merged
+
+
+def validate_freebusy_request(
+    start: datetime,
+    end: datetime,
+    calendar_ids: List[str]
+) -> None:
+    """
+    Validate parameters for a freebusy request.
+    
+    Args:
+        start: Start datetime for the query
+        end: End datetime for the query
+        calendar_ids: List of calendar IDs to query
+        
+    Raises:
+        ValueError: If any parameter is invalid
+    """
+    from .constants import MAX_FREEBUSY_DAYS_RANGE, MAX_CALENDARS_PER_FREEBUSY_QUERY
+    
+    if start >= end:
+        raise ValueError("Start time must be before end time")
+    
+    # Check maximum time range (Google's API limit)
+    days_diff = (end - start).days
+    if days_diff > MAX_FREEBUSY_DAYS_RANGE:
+        raise ValueError(f"Time range cannot exceed {MAX_FREEBUSY_DAYS_RANGE} days")
+    
+    if not calendar_ids:
+        raise ValueError("At least one calendar ID must be specified")
+    
+    if len(calendar_ids) > MAX_CALENDARS_PER_FREEBUSY_QUERY:
+        raise ValueError(f"Cannot query more than {MAX_CALENDARS_PER_FREEBUSY_QUERY} calendars at once")

@@ -1,9 +1,11 @@
 from datetime import datetime, date, time
-from typing import Optional, List
+from typing import Optional, List, Dict
 from dataclasses import dataclass, field
 import re
 
-from src.google_api_client.utils.datetime import convert_datetime_to_readable, current_datetime_local_timezone
+from src.google_api_client.utils.datetime import convert_datetime_to_readable, current_datetime_local_timezone, \
+    convert_datetime_to_local_timezone
+from src.google_api_client.utils.validation import is_valid_email
 
 
 @dataclass
@@ -22,16 +24,10 @@ class Attendee:
     def __post_init__(self):
         if not self.email:
             raise ValueError("Attendee email cannot be empty.")
-        if not self._is_valid_email(self.email):
+        if not is_valid_email(self.email):
             raise ValueError("Invalid email format - email address validation failed")
         if self.response_status and self.response_status not in ["needsAction", "declined", "tentative", "accepted"]:
             raise ValueError(f"Invalid response status: {self.response_status}. Must be one of: needsAction, declined, tentative, accepted")
-    
-    @staticmethod
-    def _is_valid_email(email: str) -> bool:
-        """Validate email format using regex."""
-        pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
-        return re.match(pattern, email) is not None
 
     def to_dict(self) -> dict:
         """
@@ -85,7 +81,7 @@ class CalendarEvent:
     organizer: Optional[str] = None
     status: Optional[str] = "confirmed"
 
-    def duration_minutes(self) -> Optional[int]:
+    def duration(self) -> Optional[int]:
         """
         Calculate the duration of the event in minutes.
         Returns:
@@ -229,3 +225,180 @@ class CalendarEvent:
             f"Attendees: {', '.join(self.get_attendee_emails())}\n"
             f"Status: {self.status}\n"
         )
+
+
+@dataclass
+class TimeSlot:
+    """
+    Represents a time slot with start and end times.
+    Used for representing both busy periods and available time slots.
+    
+    Args:
+        start: Start datetime of the time slot
+        end: End datetime of the time slot
+    """
+    start: datetime
+    end: datetime
+    
+    def __post_init__(self):
+        if self.start >= self.end:
+            raise ValueError("Start time must be before end time")
+    
+    def duration(self) -> int:
+        """
+        Calculate the duration of the time slot in minutes.
+        
+        Returns:
+            Duration in minutes
+        """
+        return int((self.end - self.start).total_seconds() / 60)
+    
+    def overlaps_with(self, other: "TimeSlot") -> bool:
+        """
+        Check if this time slot overlaps with another time slot.
+        
+        Args:
+            other: Another TimeSlot to check for overlap
+            
+        Returns:
+            True if the time slots overlap, False otherwise
+        """
+        return self.start < other.end and self.end > other.start
+    
+    def contains_time(self, time_point: datetime) -> bool:
+        """
+        Check if a specific datetime falls within this time slot.
+        
+        Args:
+            time_point: Datetime to check
+            
+        Returns:
+            True if the time point is within this slot, False otherwise
+        """
+        return self.start <= time_point < self.end
+    
+    def __str__(self):
+
+        return convert_datetime_to_readable(
+            convert_datetime_to_local_timezone(self.start),
+            convert_datetime_to_local_timezone(self.end)
+        )
+
+
+@dataclass
+class FreeBusyResponse:
+    """
+    Represents a response from a free/busy query.
+    
+    Args:
+        start: Start time of the query
+        end: End time of the query
+        calendars: Dictionary mapping calendar IDs to their busy periods
+        errors: Dictionary mapping calendar IDs to any errors encountered
+    """
+    start: datetime
+    end: datetime
+    calendars: Dict[str, List[TimeSlot]] = field(default_factory=dict)
+    errors: Dict[str, str] = field(default_factory=dict)
+    
+    def get_busy_periods(self, calendar_id: str = "primary") -> List[TimeSlot]:
+        """
+        Get busy periods for a specific calendar.
+        
+        Args:
+            calendar_id: Calendar ID to get busy periods for
+            
+        Returns:
+            List of TimeSlot objects representing busy periods
+        """
+        return self.calendars.get(calendar_id, [])
+    
+    def is_time_free(self, time_point: datetime, calendar_id: str = "primary") -> bool:
+        """
+        Check if a specific time is free in the given calendar.
+        
+        Args:
+            time_point: Datetime to check
+            calendar_id: Calendar ID to check
+            
+        Returns:
+            True if the time is free, False if busy
+        """
+        if not (self.start <= time_point <= self.end):
+            raise ValueError("Time point is outside the queried range")
+            
+        busy_periods = self.get_busy_periods(calendar_id)
+        return not any(period.contains_time(time_point) for period in busy_periods)
+    
+    def is_slot_free(self, slot: TimeSlot, calendar_id: str = "primary") -> bool:
+        """
+        Check if an entire time slot is free in the given calendar.
+        
+        Args:
+            slot: TimeSlot to check
+            calendar_id: Calendar ID to check
+            
+        Returns:
+            True if the entire slot is free, False if any part is busy
+        """
+        busy_periods = self.get_busy_periods(calendar_id)
+        return not any(period.overlaps_with(slot) for period in busy_periods)
+    
+    def get_free_slots(self, duration_minutes: int = 60, calendar_id: str = "primary") -> List[TimeSlot]:
+        """
+        Get all free time slots of a specified duration within the queried range.
+        
+        Args:
+            duration_minutes: Minimum duration for free slots in minutes
+            calendar_id: Calendar ID to get free slots for
+            
+        Returns:
+            List of TimeSlot objects representing available time slots
+        """
+        from ...utils.datetime import current_datetime_local_timezone
+        
+        busy_periods = sorted(self.get_busy_periods(calendar_id), key=lambda x: x.start)
+        free_slots = []
+        
+        # Start from the beginning of the range or current time (whichever is later)
+        current_time = max(self.start, current_datetime_local_timezone())
+        
+        # Check time before first busy period
+        if busy_periods and current_time < busy_periods[0].start:
+            gap_duration = (busy_periods[0].start - current_time).total_seconds() / 60
+            if gap_duration >= duration_minutes:
+                free_slots.append(TimeSlot(current_time, busy_periods[0].start))
+        
+        # Check gaps between busy periods
+        for i in range(len(busy_periods) - 1):
+            gap_start = busy_periods[i].end
+            gap_end = busy_periods[i + 1].start
+            gap_duration = (gap_end - gap_start).total_seconds() / 60
+            
+            if gap_duration >= duration_minutes:
+                free_slots.append(TimeSlot(gap_start, gap_end))
+        
+        # Check time after last busy period
+        if busy_periods:
+            gap_start = busy_periods[-1].end
+            if gap_start < self.end:
+                gap_duration = (self.end - gap_start).total_seconds() / 60
+                if gap_duration >= duration_minutes:
+                    free_slots.append(TimeSlot(gap_start, self.end))
+        elif current_time < self.end:
+            # No busy periods at all
+            gap_duration = (self.end - current_time).total_seconds() / 60
+            if gap_duration >= duration_minutes:
+                free_slots.append(TimeSlot(current_time, self.end))
+        
+        return free_slots
+    
+    def has_errors(self) -> bool:
+        """
+        Check if there were any errors in the freebusy query.
+        
+        Returns:
+            True if there were errors, False otherwise
+        """
+        return bool(self.errors)
+
