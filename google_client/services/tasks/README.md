@@ -509,22 +509,11 @@ def cleanup_completed_tasks(tasks):
         .completed_before(datetime.now() - timedelta(days=30))
         .execute())
     
-    # Group by task list
-    tasks_by_list = {}
-    for task in old_completed:
-        list_id = task.task_list_id
-        if list_id not in tasks_by_list:
-            tasks_by_list[list_id] = []
-        tasks_by_list[list_id].append(task)
-    
     print(f"Found {len(old_completed)} old completed tasks")
     
     # Option to delete (implement with caution)
-    for list_id, task_list in tasks_by_list.items():
-        print(f"List {list_id}: {len(task_list)} old completed tasks")
-        # Uncomment to actually delete (use with caution):
-        # for task in task_list:
-        #     tasks.delete_task(task)
+    for task_ in old_completd:
+        task.delete_task(task_)
 
 # Usage
 cleanup_completed_tasks(user.tasks)
