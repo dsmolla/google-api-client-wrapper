@@ -42,6 +42,5 @@ Each service has detailed documentation with examples and API reference:
 - **[Google Calendar Service](google_api_wrapper/services/calendar/README.md)** - Calendar and event management
 - **[Google Tasks Service](google_api_wrapper/services/tasks/README.md)** - Task and task list management
 
-## License
-
+--- 
 See individual package documentation for detailed usage examples and API references.
