@@ -12,10 +12,10 @@ from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
 
-from services import GmailApiService
-from services import CalendarApiService
-from services.tasks import TasksApiService
-from services import DriveApiService
+from . services.gmail import GmailApiService
+from . services.calendar import CalendarApiService
+from . services.tasks import TasksApiService
+from . services.drive import DriveApiService
 
 
 # SCOPES = [

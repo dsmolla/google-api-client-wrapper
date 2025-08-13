@@ -51,7 +51,7 @@ def convert_datetime_to_readable(start: datetime, end: datetime = None) -> str:
     if end:
         if end.day == datetime.strptime(start, "%a, %b %d, %Y %I:%M%p").day:
             # If start and end are on the same day
-            end = end.strftime("%I:%M %p")
+            end = end.strftime("%I:%M%p")
         else:
             end = end.strftime("%a, %b %d, %Y %I:%M%p")
     return f"{start} - {end}" if end else f"{start}"

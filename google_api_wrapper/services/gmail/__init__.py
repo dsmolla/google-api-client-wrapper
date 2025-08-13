@@ -5,12 +5,12 @@ from .query_builder import EmailQueryBuilder
 from .types import EmailMessage, EmailAddress, EmailAttachment, Label, EmailThread
 
 __all__ = [
-    # Sync classes
     "EmailMessage",
     "EmailAddress", 
     "EmailAttachment",
     "Label",
     "EmailThread",
     "EmailQueryBuilder",
+    "GmailApiService",
 
 ]

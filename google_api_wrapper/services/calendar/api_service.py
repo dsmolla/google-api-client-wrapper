@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Optional, List, Any, Dict
 
 from googleapiclient.errors import HttpError
@@ -61,8 +61,8 @@ class CalendarApiService:
 
         Args:
             max_results: Maximum number of events to retrieve. Defaults to 100.
-            start: Start time for events (inclusive).
-            end: End time for events (exclusive).
+            start: Start time for events (inclusive). Defaults to today.
+            end: End time for events (exclusive). Defaults to 30 days from start date
             query: Text search query string.
             calendar_id: Calendar ID to query (default: 'primary').
             single_events: Whether to expand recurring events into instances.
@@ -76,7 +76,8 @@ class CalendarApiService:
         if max_results and (max_results < 1 or max_results > MAX_RESULTS_LIMIT):
             raise ValueError(f"max_results must be between 1 and {MAX_RESULTS_LIMIT}")
 
-        # Input validation and preparation
+        if not end:
+            end = start + timedelta(days=30)
 
         try:
             # Build request parameters
@@ -88,7 +89,7 @@ class CalendarApiService:
             
             if order_by and single_events:
                 request_params['orderBy'] = order_by
-            
+
             # Add time range filters
             if start:
                 request_params['timeMin'] = convert_datetime_to_iso(start)

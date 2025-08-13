@@ -3,3 +3,4 @@ google-auth-httplib2
 google-auth-oauthlib~=1.2.1
 tzlocal~=5.3.1
 html2text~=2025.4.15
+protobuf~=5.29.3

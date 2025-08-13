@@ -5,14 +5,9 @@ from .types import DriveFile, DriveFolder, Permission
 from .query_builder import DriveQueryBuilder
 
 __all__ = [
-    # Service layer
     "DriveApiService",
-    
-    # Data types
     "DriveFile",
     "DriveFolder",
     "Permission",
-    
-    # Query builder
     "DriveQueryBuilder",
 ]

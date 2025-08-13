@@ -5,15 +5,10 @@ from .types import CalendarEvent, Attendee, TimeSlot, FreeBusyResponse
 from .query_builder import EventQueryBuilder
 
 __all__ = [
-    # Service layer
     "CalendarApiService",
-    
-    # Data types
     "CalendarEvent",
     "Attendee",
     "TimeSlot",
     "FreeBusyResponse",
-    
-    # Query builder
     "EventQueryBuilder",
 ]
