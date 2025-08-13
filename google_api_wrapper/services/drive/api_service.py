@@ -5,7 +5,7 @@ from typing import Optional, List, Dict, Any, Union, BinaryIO
 from googleapiclient.errors import HttpError
 from googleapiclient.http import MediaFileUpload, MediaIoBaseUpload, MediaIoBaseDownload
 
-from .utils import convert_mime_type_to_downloadable, guess_mime_type, guess_extension
+from .utils import convert_mime_type_to_downloadable, guess_extension
 from .types import DriveFile, DriveFolder, Permission, DriveItem
 from .query_builder import DriveQueryBuilder
 from . import utils
@@ -599,8 +599,8 @@ class DriveApiService:
             ).execute()
             
             permissions_data = result.get('permissions', [])
-            permissions = [utils.convert_api_permission_to_permission(perm) 
-                         for perm in permissions_data]
+            permissions = [utils.convert_api_permission_to_permission(perm)
+                           for perm in permissions_data]
             return permissions
 
         except HttpError as e:

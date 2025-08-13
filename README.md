@@ -18,7 +18,7 @@ A comprehensive Python wrapper for Google APIs, providing clean and intuitive ac
 ## Quick Start
 
 ```python
-from src.google_api_client.user_client import UserClient
+from google_api_wrapper.user_client import UserClient
 from datetime import datetime, timedelta
 
 # Authenticate User
@@ -36,10 +36,10 @@ user_2_event = user_2.calendar.create_event(datetime.now(), datetime.now() + tim
 
 Each service has detailed documentation with examples and API reference:
 
-- **[Gmail Service](src/google_api_client/services/gmail/README.md)** - Email management and operations
-- **[Google Drive Service](src/google_api_client/services/drive/README.md)** - File and folder management
-- **[Google Calendar Service](src/google_api_client/services/calendar/README.md)** - Calendar and event management
-- **[Google Tasks Service](src/google_api_client/services/tasks/README.md)** - Task and task list management
+- **[Gmail Service](google_api_wrapper/services/gmail/README.md)** - Email management and operations
+- **[Google Drive Service](google_api_wrapper/services/drive/README.md)** - File and folder management
+- **[Google Calendar Service](google_api_wrapper/services/calendar/README.md)** - Calendar and event management
+- **[Google Tasks Service](google_api_wrapper/services/tasks/README.md)** - Task and task list management
 
 ## License
 

@@ -2,7 +2,7 @@ from datetime import datetime
 from typing import Optional, List
 from dataclasses import dataclass, field
 
-from src.google_api_client.services.drive.constants import GOOGLE_DOCS_MIME_TYPE, GOOGLE_SHEETS_MIME_TYPE, \
+from google_api_wrapper.services.drive.constants import GOOGLE_DOCS_MIME_TYPE, GOOGLE_SHEETS_MIME_TYPE, \
     GOOGLE_SLIDES_MIME_TYPE
 
 

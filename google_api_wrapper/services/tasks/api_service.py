@@ -11,7 +11,7 @@ from .constants import (
 )
 from .exceptions import (
     TasksError, TasksPermissionError, TasksNotFoundError,
-    TaskConflictError, InvalidTaskDataError, TaskMoveError
+    InvalidTaskDataError, TaskMoveError
 )
 
 

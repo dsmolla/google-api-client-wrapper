@@ -1,11 +1,10 @@
 from datetime import datetime, date, time
 from typing import Optional, List, Dict
 from dataclasses import dataclass, field
-import re
 
-from src.google_api_client.utils.datetime import convert_datetime_to_readable, current_datetime_local_timezone, \
+from google_api_wrapper.utils.datetime import convert_datetime_to_readable, current_datetime_local_timezone, \
     convert_datetime_to_local_timezone
-from src.google_api_client.utils.validation import is_valid_email
+from google_api_wrapper.utils.validation import is_valid_email
 
 
 @dataclass
