@@ -2,6 +2,19 @@
 
 A comprehensive Python wrapper for Google APIs, providing clean and intuitive access to Gmail, Google Drive, Google Calendar, and Google Tasks services.
 
+## Installiation
+
+```bash
+pip install google-api-client-wrapper
+```
+
+or install directly from the GitHub repository:
+
+```bash
+pip install git+https://github.com/dsmolla/google-api-client-wrapper.git
+```
+
+
 ## Features
 
 - **Gmail Service**: Send, receive, search, and manage emails
