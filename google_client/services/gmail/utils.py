@@ -243,8 +243,6 @@ def create_message(
 
     # Add attachments
     if attachment_paths or attachment_data_list:
-        
-        
         # Create mixed container for content + attachments
         content_message = message  # Save the content part
         message = MIMEMultipart('mixed')
@@ -283,7 +281,7 @@ def create_message(
                         message.attach(attachment)
         
         # Add in-memory attachments
-        
+        if attachment_data_list:
             for filename, mime_type, data_bytes in attachment_data_list:
                 
                 main_type, sub_type = mime_type.split('/', 1) if '/' in mime_type else ('application', 'octet-stream')

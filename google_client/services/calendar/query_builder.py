@@ -1,4 +1,4 @@
-from datetime import datetime, date, time, timedelta
+from datetime import datetime, date, timedelta
 from typing import Optional, List, TYPE_CHECKING
 from ...utils.datetime import date_start, date_end, days_from_today
 from .constants import MAX_RESULTS_LIMIT, MAX_QUERY_LENGTH, DEFAULT_MAX_RESULTS, DEFAULT_CALENDAR_ID
