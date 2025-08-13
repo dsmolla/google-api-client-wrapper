@@ -40,7 +40,7 @@ user_1 = UserClient.from_file("< user_1_token_path >", "< app_credentials_path >
 user_2, user_2_token = UserClient.from_credentials_info(
     "< user_2_token_dict >": 1,
     "< app_credentials_dict >": 2,
-    "< scopes_list >,
+    "< scopes_list >",
 )
 
 # List User 1's emails
