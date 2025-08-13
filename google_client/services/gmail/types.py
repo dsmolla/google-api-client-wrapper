@@ -4,7 +4,7 @@ from datetime import datetime
 from dataclasses import dataclass, field
 from html2text import html2text
 
-from google_api_wrapper.utils.datetime import convert_datetime_to_readable
+from google_client.utils.datetime import convert_datetime_to_readable
 
 
 @dataclass

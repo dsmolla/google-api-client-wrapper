@@ -19,15 +19,15 @@ A comprehensive Python wrapper for Google APIs, providing clean and intuitive ac
 ## Quick Start
 
 ```python
-from google_api_wrapper.user_client import UserClient
+from google_client.user_client import UserClient
 from datetime import datetime, timedelta
 
 # Authenticate User
 user_1 = UserClient.from_file("< user_1_token_path >", "< app_credentials_path >")
 user_2, user_2_token = UserClient.from_credentials_info(
-                          "< user_2_token_dict >": 1,
-                          "< app_credentials_dict >": 2,
-                          "< scopes_list >,
+    "< user_2_token_dict >": 1,
+"< app_credentials_dict >": 2,
+"< scopes_list >,
 )
 
 # List User 1's emails
@@ -41,10 +41,10 @@ user_2_event = user_2.calendar.create_event(datetime.now(), datetime.now() + tim
 
 Each service has detailed documentation with examples and API reference:
 
-- **[Gmail Service](google_api_wrapper/services/gmail/README.md)** - Email management and operations
-- **[Google Drive Service](google_api_wrapper/services/drive/README.md)** - File and folder management
-- **[Google Calendar Service](google_api_wrapper/services/calendar/README.md)** - Calendar and event management
-- **[Google Tasks Service](google_api_wrapper/services/tasks/README.md)** - Task and task list management
+- **[Gmail Service](google_client/services/gmail/README.md)** - Email management and operations
+- **[Google Drive Service](google_client/services/drive/README.md)** - File and folder management
+- **[Google Calendar Service](google_client/services/calendar/README.md)** - Calendar and event management
+- **[Google Tasks Service](google_client/services/tasks/README.md)** - Task and task list management
 
 ## Links
 - **[Google Auth & Tokens](https://developers.google.com/identity/protocols/oauth2/web-server#python)**
