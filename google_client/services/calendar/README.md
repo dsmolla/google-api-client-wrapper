@@ -31,7 +31,7 @@ The Calendar service package follows a user-centric design pattern where each us
 ## Quick Start
 
 ```python
-from google_api_client import UserClient
+from google_client.user_client import UserClient
 from datetime import datetime, timedelta
 
 # Initialize user client with OAuth credentials

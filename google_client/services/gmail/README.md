@@ -33,7 +33,7 @@ The Gmail service package follows a user-centric design pattern where each user 
 ## Quick Start
 
 ```python
-from google_api_client import UserClient
+from google_client.user_client import UserClient
 
 # Initialize user client with OAuth credentials
 user = UserClient.from_file(
