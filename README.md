@@ -11,6 +11,7 @@ A comprehensive Python wrapper for Google APIs, providing clean and intuitive ac
 - **OAuth2 Authentication**: Secure authentication flow
 - **Query Builders**: Intuitive query building for each service
 - **Multi-User Authentication**: Supports multiple users to be authenticated
+- **Dataclass Models**: Uses Python dataclasses for clean, type-safe data structures (GmailMessage, EmailAddress, Task, Event, etc.)
 
 ## Installation
 
