@@ -1,6 +1,8 @@
 from datetime import datetime, date, timedelta
 from typing import Optional, List, TYPE_CHECKING
 
+from ...utils.datetime import convert_datetime_to_local_timezone
+
 if TYPE_CHECKING:
     from .api_service import EmailMessage
     from .types import EmailThread
@@ -184,11 +186,17 @@ class EmailQueryBuilder:
         """
         if start_date > end_date:
             raise ValueError("Start date must be before end date")
-            
-        start_str = start_date.strftime("%Y/%m/%d")
-        end_str = end_date.strftime("%Y/%m/%d")
-        self._query_parts.append(f"after:{start_str}")
-        self._query_parts.append(f"before:{end_str}")
+
+        start_date = datetime.combine(start_date, datetime.min.time())
+        start_date = convert_datetime_to_local_timezone(start_date)
+        start_date_timestamp = int(start_date.timestamp())
+
+        end_date = datetime.combine(end_date, datetime.min.time())
+        end_date = convert_datetime_to_local_timezone(end_date)
+        end_date_timestamp = int(end_date.timestamp())
+
+        self._query_parts.append(f"after:{start_date_timestamp}")
+        self._query_parts.append(f"before:{end_date_timestamp}")
         return self
         
     def after_date(self, date_obj: date) -> "EmailQueryBuilder":
@@ -199,8 +207,11 @@ class EmailQueryBuilder:
         Returns:
             Self for method chaining
         """
-        date_str = date_obj.strftime("%Y/%m/%d")
-        self._query_parts.append(f"after:{date_str}")
+        date_obj = datetime.combine(date_obj, datetime.min.time())
+        date_obj = convert_datetime_to_local_timezone(date_obj)
+        date_obj_timestamp = int(date_obj.timestamp())
+
+        self._query_parts.append(f"after:{date_obj_timestamp}")
         return self
         
     def before_date(self, date_obj: date) -> "EmailQueryBuilder":
@@ -211,8 +222,10 @@ class EmailQueryBuilder:
         Returns:
             Self for method chaining
         """
-        date_str = date_obj.strftime("%Y/%m/%d")
-        self._query_parts.append(f"before:{date_str}")
+        date_obj = datetime.combine(date_obj, datetime.min.time())
+        date_obj = convert_datetime_to_local_timezone(date_obj)
+        date_timestamp = int(date_obj.timestamp())
+        self._query_parts.append(f"before:{date_timestamp}")
         return self
         
     def today(self) -> "EmailQueryBuilder":
@@ -221,9 +234,11 @@ class EmailQueryBuilder:
         Returns:
             Self for method chaining
         """
-        today = datetime.now().date()
-        today_str = today.strftime("%Y/%m/%d")
-        self._query_parts.append(f"after:{today_str}")
+        today = datetime.combine(datetime.today(), datetime.min.time())
+        today = convert_datetime_to_local_timezone(today)
+        today_timestamp = int(today.timestamp())
+
+        self._query_parts.append(f"after:{today_timestamp}")
         return self
         
     def yesterday(self) -> "EmailQueryBuilder":
@@ -233,11 +248,18 @@ class EmailQueryBuilder:
             Self for method chaining
         """
         yesterday = datetime.now().date() - timedelta(days=1)
+        yesterday = datetime.combine(yesterday, datetime.min.time())
+        yesterday = convert_datetime_to_local_timezone(yesterday)
+        yesterday_timestamp = int(yesterday.timestamp())
+
         today = datetime.now().date()
-        yesterday_str = yesterday.strftime("%Y/%m/%d")
-        today_str = today.strftime("%Y/%m/%d")
-        self._query_parts.append(f"after:{yesterday_str}")
-        self._query_parts.append(f"before:{today_str}")
+        today = datetime.combine(today, datetime.min.time())
+        today = convert_datetime_to_local_timezone(today)
+        today_timestamp = int(today.timestamp())
+
+        self._query_parts.append(f"after:{yesterday_timestamp}")
+        self._query_parts.append(f"before:{today_timestamp}")
+
         return self
         
     def last_days(self, days: int) -> "EmailQueryBuilder":
@@ -252,8 +274,11 @@ class EmailQueryBuilder:
             raise ValueError("Days must be positive")
             
         start_date = datetime.now() - timedelta(days=days)
-        start_str = start_date.strftime("%Y/%m/%d")
-        self._query_parts.append(f"after:{start_str}")
+        start_date = datetime.combine(start_date, datetime.min.time())
+        start_date = convert_datetime_to_local_timezone(start_date)
+        start_date_timestamp = int(start_date.timestamp())
+
+        self._query_parts.append(f"after:{start_date_timestamp}")
         return self
         
     def this_week(self) -> "EmailQueryBuilder":
@@ -262,7 +287,7 @@ class EmailQueryBuilder:
         Returns:
             Self for method chaining
         """
-        days_since_monday = date.weekday(date.today() ) + 1  # Monday is 0, so we add 1 to include today
+        days_since_monday = date.weekday(date.today() )  # Monday is 0
         return self.last_days(days_since_monday)
         
     def this_month(self) -> "EmailQueryBuilder":
@@ -271,7 +296,7 @@ class EmailQueryBuilder:
         Returns:
             Self for method chaining
         """
-        days_since_month_started = date.today().day # Days in current month
+        days_since_month_started = date.today().day - 1# Days in current month
         return self.last_days(days_since_month_started)
         
     def larger_than(self, size_mb: int) -> "EmailQueryBuilder":
@@ -341,40 +366,18 @@ class EmailQueryBuilder:
         )
 
         return emails
-        
-    def count(self) -> int:
-        """
-        Get the count of emails matching the query without retrieving them.
-        Returns:
-            Number of emails matching the query
-        """
-        # Set limit to 1 to minimize data transfer
-        original_limit = self._max_results
-        self._max_results = 1
-        
-        try:
-            # Execute the query to get total count from Gmail API
-            # Note: Gmail API doesn't provide direct count, so we estimate
-            results = self.execute()
-            return len(results)  # This is just the returned count, not total
-        finally:
-            self._max_results = original_limit
-            
+
     def first(self) -> Optional["EmailMessage"]:
         """
         Get the first email matching the query.
         Returns:
             First EmailMessage object or None if no matches
         """
-        original_limit = self._max_results
-        self._max_results = 1
-        
-        try:
-            results = self.execute()
-            return results[0] if results else None
-        finally:
-            self._max_results = original_limit
-            
+
+        results = self.limit(1).execute()
+
+        return results[0] if results else None
+
     def exists(self) -> bool:
         """
         Check if any emails match the query.

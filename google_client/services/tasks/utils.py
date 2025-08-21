@@ -1,11 +1,9 @@
-import re
 from datetime import datetime, date, time
 from typing import Optional, Dict, Any
 
 from .types import Task, TaskList
 from .constants import (
     MAX_TITLE_LENGTH, MAX_NOTES_LENGTH, VALID_TASK_STATUSES,
-    RFC3339_FORMAT
 )
 from ...utils.datetime import convert_datetime_to_local_timezone
 

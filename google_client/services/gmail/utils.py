@@ -8,7 +8,6 @@ import mimetypes
 import html
 from typing import Optional, List
 import base64
-import re
 from .types import EmailMessage, EmailAttachment, EmailAddress, EmailThread
 from ...utils.datetime import convert_datetime_to_local_timezone, convert_datetime_to_readable
 from .constants import MAX_SUBJECT_LENGTH, MAX_BODY_LENGTH
@@ -401,13 +400,11 @@ def prepare_forward_body_html(email: EmailMessage) -> Optional[str]:
     if not email.body_html:
         return None
         
-    forward_content = []
+    forward_content = ["---------- Forwarded message ---------<br>", f"<b>From:</b> {email.sender}<br>",
+                       f"<b>Date:</b> {convert_datetime_to_readable(email.date_time)}<br>",
+                       f"<b>Subject:</b> {email.subject}<br>"
+                       ]
 
-    forward_content.append("---------- Forwarded message ---------<br>")
-    
-    forward_content.append(f"<b>From:</b> {email.sender}<br>")
-    forward_content.append(f"<b>Date:</b> {convert_datetime_to_readable(email.date_time)}<br>")
-    forward_content.append(f"<b>Subject:</b> {email.subject}<br>")
     if email.recipients:
         to_list = ", ".join([str(recipient) for recipient in email.recipients])
         forward_content.append(f"<b>To:</b> {to_list}<br>")

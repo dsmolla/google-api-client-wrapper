@@ -1,22 +1,18 @@
 
 from typing import Optional, List
 from datetime import datetime
-from dataclasses import dataclass, field
+from pydantic import BaseModel, Field
 from html2text import html2text
 
 from google_client.utils.datetime import convert_datetime_to_readable
 
 
-@dataclass
-class EmailAddress:
+class EmailAddress(BaseModel):
     """
     Represents an email address with name and email.
-    Args:
-        email: The email address.
-        name: The display name (optional).
     """
-    email: str
-    name: Optional[str] = None
+    email: str = Field(..., description="The email address")
+    name: Optional[str] = Field(None, description="The display name")
 
 
     def to_dict(self) -> dict:
@@ -36,22 +32,15 @@ class EmailAddress:
         return self.email
 
 
-@dataclass
-class EmailAttachment:
+class EmailAttachment(BaseModel):
     """
     Represents an email attachment.
-    Args:
-        filename: The name of the attachment file.
-        mime_type: The MIME type of the attachment.
-        size: The size of the attachment in bytes.
-        attachment_id: The unique identifier for the attachment in Gmail.
-        message_id: The message id of the message the attachment is attached to.
     """
-    filename: str
-    mime_type: str
-    size: int
-    attachment_id: str
-    message_id: str
+    filename: str = Field(..., description="The name of the attachment file")
+    mime_type: str = Field(..., description="The MIME type of the attachment")
+    size: int = Field(..., description="The size of the attachment in bytes")
+    attachment_id: str = Field(..., description="The unique identifier for the attachment in Gmail")
+    message_id: str = Field(..., description="The message id of the message the attachment is attached to")
 
 
     def to_dict(self) -> dict:
@@ -69,18 +58,13 @@ class EmailAttachment:
         }
 
 
-@dataclass
-class Label:
+class Label(BaseModel):
     """
     Represents a Gmail label.
-    Args:
-        id: The unique identifier for the label.
-        name: The name of the label.
-        type: The type of the label (e.g., system, user).
     """
-    id: str
-    name: str
-    type: str
+    id: str = Field(..., description="The unique identifier for the label")
+    name: str = Field(..., description="The name of the label")
+    type: str = Field(..., description="The type of the label (e.g., system, user)")
 
     def to_dict(self):
         return {
@@ -93,20 +77,14 @@ class Label:
         return f"Label(id={self.id}, name={self.name}, type={self.type})"
 
 
-@dataclass
-class EmailThread:
+class EmailThread(BaseModel):
     """
     Represents a Gmail thread containing multiple related messages.
-    Args:
-        thread_id: Unique identifier for the thread.
-        messages: List of EmailMessage objects in this thread.
-        snippet: A short snippet of the thread content.
-        history_id: The history ID of the thread.
     """
-    thread_id: Optional[str] = None
-    messages: List["EmailMessage"] = field(default_factory=list)
-    snippet: Optional[str] = None
-    history_id: Optional[str] = None
+    thread_id: Optional[str] = Field(None, description="Unique identifier for the thread")
+    messages: List["EmailMessage"] = Field(default_factory=list, description="List of EmailMessage objects in this thread")
+    snippet: Optional[str] = Field(None, description="A short snippet of the thread content")
+    history_id: Optional[str] = Field(None, description="The history ID of the thread")
 
     def get_latest_message(self) -> Optional["EmailMessage"]:
         """
@@ -160,53 +138,34 @@ class EmailThread:
         )
 
 
-@dataclass
-class EmailMessage:
+class EmailMessage(BaseModel):
     """
     Represents a Gmail message with various attributes.
-    Args:
-        message_id: Unique identifier for the message.
-        thread_id: The thread ID this message belongs to.
-        subject: The subject line of the email.
-        sender: The sender's email address information.
-        recipients: List of recipient email addresses (To field).
-        cc_recipients: List of CC recipient email addresses.
-        bcc_recipients: List of BCC recipient email addresses.
-        date_time: When the message was sent or received.
-        body_text: Plain text body of the email.
-        body_html: HTML body of the email.
-        attachments: List of attachments in the email.
-        labels: List of Gmail labels applied to the message.
-        is_read: Whether the message has been read.
-        is_starred: Whether the message is starred.
-        is_important: Whether the message is marked as important.
-        snippet: A short snippet of the message content.
-        reply_to_id: The ID of the message to use when replying to this message.
     """
-    message_id: Optional[str] = None
-    thread_id: Optional[str] = None
+    message_id: Optional[str] = Field(None, description="Unique identifier for the message")
+    thread_id: Optional[str] = Field(None, description="The thread ID this message belongs to")
 
-    reply_to_id: Optional[str] = None
-    references: Optional[str] = None
+    reply_to_id: Optional[str] = Field(None, description="The ID of the message to use when replying to this message")
+    references: Optional[str] = Field(None, description="References header for message threading")
 
-    subject: Optional[str] = None
-    body_html: Optional[str] = None
-    body_text: Optional[str] = None
-    attachments: List[EmailAttachment] = field(default_factory=list)
+    subject: Optional[str] = Field(None, description="The subject line of the email")
+    body_html: Optional[str] = Field(None, description="HTML body of the email")
+    body_text: Optional[str] = Field(None, description="Plain text body of the email")
+    attachments: List[EmailAttachment] = Field(default_factory=list, description="List of attachments in the email")
 
-    sender: Optional[EmailAddress] = None
-    recipients: List[EmailAddress] = field(default_factory=list)
-    cc_recipients: List[EmailAddress] = field(default_factory=list)
-    bcc_recipients: List[EmailAddress] = field(default_factory=list)
+    sender: Optional[EmailAddress] = Field(None, description="The sender's email address information")
+    recipients: List[EmailAddress] = Field(default_factory=list, description="List of recipient email addresses (To field)")
+    cc_recipients: List[EmailAddress] = Field(default_factory=list, description="List of CC recipient email addresses")
+    bcc_recipients: List[EmailAddress] = Field(default_factory=list, description="List of BCC recipient email addresses")
 
-    date_time: Optional[datetime] = None
+    date_time: Optional[datetime] = Field(None, description="When the message was sent or received")
 
-    labels: List[str] = field(default_factory=list)
-    is_read: bool = False
-    is_starred: bool = False
-    is_important: bool = False
+    labels: List[str] = Field(default_factory=list, description="List of Gmail labels applied to the message")
+    is_read: bool = Field(False, description="Whether the message has been read")
+    is_starred: bool = Field(False, description="Whether the message is starred")
+    is_important: bool = Field(False, description="Whether the message is marked as important")
 
-    snippet: Optional[str] = None
+    snippet: Optional[str] = Field(None, description="A short snippet of the message content")
 
     def get_plain_text_content(self) -> str:
         """

@@ -299,7 +299,6 @@ class DriveApiService:
 
         # Create directory if it doesn't exist
         os.makedirs(os.path.dirname(dest_directory), exist_ok=True)
-        file_path = ""
         if not file_name:
             file_name = file.name + guess_extension(file.mime_type)
         file_path = os.path.join(dest_directory, file_name)

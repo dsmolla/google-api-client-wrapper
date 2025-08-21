@@ -1,20 +1,15 @@
 from datetime import date, datetime, timedelta
 from typing import Optional
-from dataclasses import dataclass
+from pydantic import BaseModel, Field
 
 
-@dataclass
-class TaskList:
+class TaskList(BaseModel):
     """
     Represents a Google Task List.
-    Args:
-        task_list_id: Unique identifier for the task list.
-        title: The title of the task list.
-        updated: Last modification time.
     """
-    task_list_id: Optional[str] = None
-    title: Optional[str] = None
-    updated: Optional[datetime] = None
+    task_list_id: Optional[str] = Field(None, description="Unique identifier for the task list")
+    title: Optional[str] = Field(None, description="The title of the task list")
+    updated: Optional[datetime] = Field(None, description="Last modification time")
 
     def to_dict(self) -> dict:
         """
@@ -35,32 +30,20 @@ class TaskList:
         return f"TaskList(id={self.task_list_id!r}, title={self.title!r})"
 
 
-@dataclass
-class Task:
+class Task(BaseModel):
     """
     Represents a Google Task.
-    Args:
-        task_id: Unique identifier for the task.
-        title: The title of the task.
-        notes: Notes describing the task.
-        status: Status of the task ('needsAction' or 'completed').
-        due: Due date of the task.
-        completed: Completion date of the task.
-        updated: Last modification time.
-        parent: Parent task identifier.
-        position: Position in the task list.
-        task_list_id: ID of the task list this task belongs to.
     """
-    task_id: Optional[str] = None
-    title: Optional[str] = None
-    notes: Optional[str] = None
-    status: Optional[str] = "needsAction"
-    due: Optional[date] = None
-    completed: Optional[date] = None
-    updated: Optional[date] = None
-    parent: Optional[str] = None
-    position: Optional[str] = None
-    task_list_id: Optional[str] = None
+    task_id: Optional[str] = Field(None, description="Unique identifier for the task")
+    title: Optional[str] = Field(None, description="The title of the task")
+    notes: Optional[str] = Field(None, description="Notes describing the task")
+    status: Optional[str] = Field("needsAction", description="Status of the task ('needsAction' or 'completed')")
+    due: Optional[date] = Field(None, description="Due date of the task")
+    completed: Optional[date] = Field(None, description="Completion date of the task")
+    updated: Optional[date] = Field(None, description="Last modification time")
+    parent: Optional[str] = Field(None, description="Parent task identifier")
+    position: Optional[str] = Field(None, description="Position in the task list")
+    task_list_id: Optional[str] = Field(None, description="ID of the task list this task belongs to")
 
     def is_completed(self) -> bool:
         """
