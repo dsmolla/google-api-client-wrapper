@@ -1,31 +1,23 @@
 from datetime import datetime
 from typing import Optional, List
-from dataclasses import dataclass, field
+from pydantic import BaseModel, Field
+
 
 from google_client.services.drive.constants import GOOGLE_DOCS_MIME_TYPE, GOOGLE_SHEETS_MIME_TYPE, \
     GOOGLE_SLIDES_MIME_TYPE
 
 
-@dataclass
-class Permission:
+class Permission(BaseModel):
     """
     Represents a permission for a Drive file or folder.
-    Args:
-        permission_id: The unique identifier for this permission.
-        type: The type of permission (user, group, domain, anyone).
-        role: The role of the permission (reader, writer, commenter, owner).
-        email_address: The email address for user/group permissions.
-        domain: The domain name for domain permissions.
-        display_name: Display name of the person/group.
-        deleted: Whether this permission has been deleted.
     """
-    permission_id: str
-    type: Optional[str] = None
-    role: Optional[str] = None
-    email_address: Optional[str] = None
-    domain: Optional[str] = None
-    display_name: Optional[str] = None
-    deleted: bool = False
+    permission_id: str = Field(..., description="The unique identifier for this permission")
+    type: Optional[str] = Field(None, description="The type of permission (user, group, domain, anyone)")
+    role: Optional[str] = Field(None, description="The role of the permission (reader, writer, commenter, owner)")
+    email_address: Optional[str] = Field(None, description="The email address for user/group permissions")
+    domain: Optional[str] = Field(None, description="The domain name for domain permissions")
+    display_name: Optional[str] = Field(None, description="Display name of the person/group")
+    deleted: bool = Field(False, description="Whether this permission has been deleted")
 
     def to_dict(self) -> dict:
         """
@@ -59,23 +51,22 @@ class Permission:
             return f"{self.type} ({self.role})"
 
 
-@dataclass
-class DriveItem:
+class DriveItem(BaseModel):
     """
     Base class for items in Google Drive (files and folders).
     """
-    item_id: str
-    name: Optional[str] = None
-    created_time: Optional[datetime] = None
-    modified_time: Optional[datetime] = None
-    parent_ids: List[str] = field(default_factory=list)
-    web_view_link: Optional[str] = None
-    owners: List[str] = field(default_factory=list)
-    permissions: List[Permission] = field(default_factory=list)
-    description: Optional[str] = None
-    starred: bool = False
-    trashed: bool = False
-    shared: bool = False
+    item_id: str = Field(..., description="Unique identifier for the Drive item")
+    name: Optional[str] = Field(None, description="Name of the Drive item")
+    created_time: Optional[datetime] = Field(None, description="When the item was created")
+    modified_time: Optional[datetime] = Field(None, description="When the item was last modified")
+    parent_ids: List[str] = Field(default_factory=list, description="List of parent folder IDs")
+    web_view_link: Optional[str] = Field(None, description="Link to view the item in a web browser")
+    owners: List[str] = Field(default_factory=list, description="List of owner email addresses")
+    permissions: List[Permission] = Field(default_factory=list, description="List of permissions for the item")
+    description: Optional[str] = Field(None, description="Description of the item")
+    starred: bool = Field(False, description="Whether the item is starred")
+    trashed: bool = Field(False, description="Whether the item is in the trash")
+    shared: bool = Field(False, description="Whether the item is shared with others")
 
     def get_parent_folder_id(self) -> Optional[str]:
         """
@@ -133,17 +124,16 @@ class DriveItem:
         return result
 
 
-@dataclass
 class DriveFile(DriveItem):
     """
     Represents a file in Google Drive.
     """
-    mime_type: Optional[str] = None
-    size: Optional[int] = None
-    web_content_link: Optional[str] = None
-    original_filename: Optional[str] = None
-    file_extension: Optional[str] = None
-    md5_checksum: Optional[str] = None
+    mime_type: Optional[str] = Field(None, description="MIME type of the file")
+    size: Optional[int] = Field(None, description="Size of the file in bytes")
+    web_content_link: Optional[str] = Field(None, description="Direct download link for the file")
+    original_filename: Optional[str] = Field(None, description="Original filename when uploaded")
+    file_extension: Optional[str] = Field(None, description="File extension")
+    md5_checksum: Optional[str] = Field(None, description="MD5 checksum of the file")
 
     @property
     def file_id(self):
@@ -208,7 +198,6 @@ class DriveFile(DriveItem):
         return f"DriveFile(id={self.item_id!r}, name={self.name!r}, mime_type={self.mime_type!r})"
 
 
-@dataclass
 class DriveFolder(DriveItem):
     """
     Represents a folder in Google Drive.

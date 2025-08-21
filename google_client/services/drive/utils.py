@@ -1,7 +1,6 @@
 from datetime import datetime
 from typing import Optional, Dict, Any, List, Union
 import mimetypes
-import os
 
 from .types import DriveFile, DriveFolder, Permission
 from .constants import FOLDER_MIME_TYPE, GOOGLE_DOCS_MIME_TYPE, MICROSOFT_WORD_MIME_TYPE, GOOGLE_SHEETS_MIME_TYPE, \

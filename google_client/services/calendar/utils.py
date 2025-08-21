@@ -245,7 +245,7 @@ def parse_freebusy_response(freebusy_data: Dict[str, Any]) -> FreeBusyResponse:
                     try:
                         period_start = datetime.fromisoformat(period_start_str.replace('Z', '+00:00'))
                         period_end = datetime.fromisoformat(period_end_str.replace('Z', '+00:00'))
-                        busy_periods.append(TimeSlot(period_start, period_end))
+                        busy_periods.append(TimeSlot(start=period_start, end=period_end))
                     except (ValueError, TypeError):
                         continue
             
@@ -297,7 +297,7 @@ def merge_overlapping_time_slots(time_slots: List[TimeSlot]) -> List[TimeSlot]:
         if current.start <= last_merged.end:
             # Merge by extending the end time if necessary
             if current.end > last_merged.end:
-                merged[-1] = TimeSlot(last_merged.start, current.end)
+                merged[-1] = TimeSlot(start=last_merged.start, end=current.end)
         else:
             # No overlap, add as new slot
             merged.append(current)
