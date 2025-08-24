@@ -178,6 +178,71 @@ class GmailApiService:
         except Exception as e:
             raise
 
+    def create_draft(
+            self,
+            to: List[str],
+            subject: Optional[str] = None,
+            body_text: Optional[str] = None,
+            body_html: Optional[str] = None,
+            cc: Optional[List[str]] = None,
+            bcc: Optional[List[str]] = None,
+            attachment_paths: Optional[List[str]] = None,
+            reply_to_message_id: Optional[str] = None,
+            references: Optional[str] = None,
+            thread_id: Optional[str] = None
+    ) -> EmailMessage:
+        """
+        Creates a draft email message.
+
+        Args:
+            to: List of recipient email addresses.
+            subject: The subject line of the email.
+            body_text: Plain text body of the email (optional).
+            body_html: HTML body of the email (optional).
+            cc: List of CC recipient email addresses (optional).
+            bcc: List of BCC recipient email addresses (optional).
+            attachment_paths: List of file paths to attach (optional).
+            reply_to_message_id: ID of message this is replying to (optional).
+            references: List of references to attach (optional).
+            thread_id: ID of the thread to which this message belongs (optional).
+
+        Returns:
+            A dictionary containing the draft information including the draft ID.
+        """
+        
+        # Create message
+        raw_message = utils.create_message(
+            to=to,
+            subject=subject,
+            body_text=body_text,
+            body_html=body_html,
+            cc=cc,
+            bcc=bcc,
+            attachment_paths=attachment_paths,
+            references=references,
+            reply_to_message_id=reply_to_message_id
+        )
+
+        try:
+            draft_body = {
+                'message': {
+                    'raw': raw_message
+                }
+            }
+            
+            if thread_id:
+                draft_body['message']['threadId'] = thread_id
+
+            draft_result = self._service.users().drafts().create(
+                userId='me',
+                body=draft_body
+            ).execute()
+
+            return self.get_email(draft_result['id'])
+
+        except Exception as e:
+            raise
+
     def batch_get_emails(self, message_ids: List[str]) -> List["EmailMessage"]:
         """
         Retrieves multiple emails.

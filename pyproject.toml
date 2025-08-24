@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "google-api-client-wrapper"
-version = "1.0.0"
+version = "1.0.1"
 description = "A comprehensive Python wrapper for Google APIs, providing clean and intuitive access to Gmail, Google Drive, Google Calendar, and Google Tasks services."
 readme = {file = "README.md", content-type = "text/markdown"}
 authors = [{name = "Dagmawi Molla", email = "dagmawishewadeg@gmail.com"}]
@@ -35,7 +35,8 @@ dependencies = [
     "google-auth-httplib2",
     "google-auth-oauthlib>=1.2.1",
     "tzlocal>=5.3.1",
-    "html2text>=2025.4.15"
+    "html2text>=2025.4.15",
+    "smolagents>=0.6.0"
 ]
 
 [project.urls]
