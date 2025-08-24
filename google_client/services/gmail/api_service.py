@@ -238,7 +238,7 @@ class GmailApiService:
                 body=draft_body
             ).execute()
 
-            return self.get_email(draft_result['id'])
+            return self.get_email(draft_result['message']['id'])
 
         except Exception as e:
             raise
