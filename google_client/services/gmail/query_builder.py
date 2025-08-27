@@ -162,7 +162,7 @@ class EmailQueryBuilder:
         if folder:
             self._query_parts.append(f"in:{folder}")
         return self
-        
+
     def with_label(self, label: str) -> "EmailQueryBuilder":
         """
         Filter emails with a specific label.
@@ -173,6 +173,18 @@ class EmailQueryBuilder:
         """
         if label:
             self._query_parts.append(f"label:{label}")
+        return self
+
+    def without_label(self, label: str) -> "EmailQueryBuilder":
+        """
+        Filter emails without a specific label.
+        Args:
+            label: Label name
+        Returns:
+            Self for method chaining
+        """
+        if label:
+            self._query_parts.append(f"-label:{label}")
         return self
         
     def in_date_range(self, start_date: date, end_date: date) -> "EmailQueryBuilder":
@@ -270,7 +282,7 @@ class EmailQueryBuilder:
         Returns:
             Self for method chaining
         """
-        if days < 1:
+        if days < 0:
             raise ValueError("Days must be positive")
             
         start_date = datetime.now() - timedelta(days=days)

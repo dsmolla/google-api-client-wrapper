@@ -57,6 +57,11 @@ class EmailAttachment(BaseModel):
             "message_id": self.message_id,
         }
 
+    def __repr__(self):
+        return (f"Attachment(filename={self.filename}, mime_type={self.mime_type}, "
+                f"size={self.size}), attachment_id={self.attachment_id}), message_id={self.message_id})"
+                )
+
 
 class Label(BaseModel):
     """

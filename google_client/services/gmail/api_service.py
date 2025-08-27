@@ -285,7 +285,7 @@ class GmailApiService:
 
     def reply(
             self,
-            original_email: EmailMessage,
+            original_email: Union[EmailMessage, str],
             body_text: Optional[str] = None,
             body_html: Optional[str] = None,
             attachment_paths: Optional[List[str]] = None,
@@ -294,7 +294,7 @@ class GmailApiService:
         """
         Sends a reply to the current email message.
         Args:
-            original_email: The original email message being replied to
+            original_email: The original email message being replied to or its ID.
             body_text: Plain text body of the email.
             body_html: HTML body of the email.
             attachment_paths: List of file paths to attach (optional).
@@ -302,6 +302,9 @@ class GmailApiService:
         Returns:
             An EmailMessage object representing the message sent.
         """
+        if isinstance(original_email, str):
+            original_email = self.get_email(original_email)
+
         if original_email.is_from('me'):
             to = original_email.get_recipient_emails()
         else:
@@ -324,7 +327,7 @@ class GmailApiService:
 
     def forward(
             self,
-            original_email: EmailMessage,
+            original_email: Union[EmailMessage, str],
             to: List[str],
             include_attachments: bool = True
     ) -> EmailMessage:
@@ -332,13 +335,15 @@ class GmailApiService:
         Forwards an email message to new recipients.
         
         Args:
-            original_email: The original email message being forwarded
+            original_email: The original email message being forwarded or its ID
             to: List of recipient email addresses
             include_attachments: Whether to include original email's attachments
             
         Returns:
             An EmailMessage object representing the forwarded message
         """
+        if isinstance(original_email, str):
+            original_email = self.get_email(original_email)
         
         # Prepare subject with Fwd: prefix
         subject = f"Fwd: {original_email.subject}" if original_email.subject else "Fwd:"
@@ -379,21 +384,26 @@ class GmailApiService:
         except Exception as e:
             raise
 
-    def mark_as_read(self, email: EmailMessage) -> bool:
+    def mark_as_read(self, email: Union[EmailMessage, str]) -> bool:
         """
         Marks a message as read by removing the UNREAD label.
 
         Args:
-            email: The email message being marked as read.
+            email: The email message being marked as read or its ID.
 
         Returns:
             True if the operation was successful, False otherwise.
         """
 
+        if isinstance(email, str):
+            message_id = email
+        else:
+            message_id = email.message_id
+
         try:
             self._service.users().messages().modify(
                 userId='me',
-                id=email.message_id,
+                id=message_id,
                 body={'removeLabelIds': ['UNREAD']}
             ).execute()
             email.is_read = True
@@ -401,21 +411,25 @@ class GmailApiService:
         except Exception as e:
             return False
 
-    def mark_as_unread(self, email: EmailMessage) -> bool:
+    def mark_as_unread(self, email: Union[EmailMessage, str]) -> bool:
         """
         Marks a message as unread by adding the UNREAD label.
 
         Args:
-            email: The email message being marked as unread
+            email: The email message being marked as unread or its ID.
 
         Returns:
             True if the operation was successful, False otherwise.
         """
+        if isinstance(email, str):
+            message_id = email
+        else:
+            message_id = email.message_id
 
         try:
             self._service.users().messages().modify(
                 userId='me',
-                id=email.message_id,
+                id=message_id,
                 body={'addLabelIds': ['UNREAD']}
             ).execute()
             email.is_read = False
@@ -423,23 +437,27 @@ class GmailApiService:
         except Exception as e:
             return False
 
-    def add_label(self, email: EmailMessage, labels: List[str]) -> bool:
+    def add_label(self, email: Union[EmailMessage, str], labels: List[str]) -> bool:
         """
         Adds labels to a message.
 
         Args:
-            email: The email message to add labels to
+            email: The email message to add labels to or its ID
             labels: List of label IDs to add.
 
         Returns:
             True if the operation was successful, False otherwise.
         """
 
+        if isinstance(email, str):
+            message_id = email
+        else:
+            message_id = email.message_id
 
         try:
             self._service.users().messages().modify(
                 userId='me',
-                id=email.message_id,
+                id=message_id,
                 body={'addLabelIds': labels}
             ).execute()
             # Update local state
@@ -451,7 +469,7 @@ class GmailApiService:
         except Exception as e:
             return False
 
-    def remove_label(self, email: EmailMessage, labels: List[str]) -> bool:
+    def remove_label(self, email: Union[EmailMessage, str], labels: List[str]) -> bool:
         """
         Removes labels from a message.
 
@@ -463,10 +481,15 @@ class GmailApiService:
             True if the operation was successful, False otherwise.
         """
 
+        if isinstance(email, str):
+            message_id = email
+        else:
+            message_id = email.message_id
+
         try:
             self._service.users().messages().modify(
                 userId='me',
-                id=email.message_id,
+                id=message_id,
                 body={'removeLabelIds': labels}
             ).execute()
             # Update local state
@@ -479,7 +502,7 @@ class GmailApiService:
         except Exception as e:
             return False
 
-    def delete_email(self, email: EmailMessage, permanent: bool = False) -> bool:
+    def delete_email(self, email: Union[EmailMessage, str], permanent: bool = False) -> bool:
         """
         Deletes a message (moves to trash or permanently deletes).
 
@@ -491,33 +514,70 @@ class GmailApiService:
             True if the operation was successful, False otherwise.
         """
 
+        if isinstance(email, str):
+            message_id = email
+        else:
+            message_id = email.message_id
+
         try:
             if permanent:
-                self._service.users().messages().delete(userId='me', id=email.message_id).execute()
+                self._service.users().messages().delete(userId='me', id=message_id).execute()
             else:
-                self._service.users().messages().trash(userId='me', id=email.message_id).execute()
+                self._service.users().messages().trash(userId='me', id=message_id).execute()
             return True
         except Exception as e:
             return False
 
-    def get_attachment_payload(self, attachment: EmailAttachment) -> bytes:
+    def get_attachment_payload(self, attachment: Union[EmailAttachment, dict]) -> bytes:
+        """
+        Retrieves the raw payload of an email attachment.
+        Args:
+            attachment: The EmailAttachment object or dictionary containing attachment details. If a dictionary is provided, it must contain 'attachment_id' and 'message_id' keys.
+        Returns:
+            The raw bytes of the attachment.
+        """
+
+        if isinstance(attachment, dict):
+            if not all(k in attachment for k in ('attachment_id', 'message_id')):
+                raise ValueError("Attachment dictionary must contain 'attachment_id' and 'message_id' keys.")
+            message_id = attachment['message_id']
+            attachment_id = attachment['attachment_id']
+        else:
+            message_id = attachment.message_id
+            attachment_id = attachment.attachment_id
+
         attachment_ = self._service.users().messages().attachments().get(
             userId='me',
-            messageId=attachment.message_id,
-            id=attachment.attachment_id
+            messageId=message_id,
+            id=attachment_id
         ).execute()
         data = attachment_['data']
         data = base64.urlsafe_b64decode(data + '===')
 
         return data
 
-    def download_attachment(self, attachment: EmailAttachment, download_folder: str = 'attachments'):
+    def download_attachment(self, attachment: Union[EmailAttachment, dict], download_folder: str = 'attachments'):
+        """
+        Downloads an email attachment to the specified folder.
+        Args:
+            attachment: The EmailAttachment object or dictionary containing attachment details. If a dictionary is provided, it must contain 'filename', 'attachment_id', and 'message_id' keys.
+            download_folder: The folder path where the attachment will be saved. Defaults to 'attachments'.
+        Returns:
+            None
+        """
         if not os.path.exists(download_folder):
             os.makedirs(download_folder)
 
-        try:
+        if isinstance(attachment, EmailAttachment):
+            filename = attachment.filename
+        else:
+            if not all(k in attachment for k in ('filename', 'attachment_id', 'message_id')):
+                raise ValueError("Attachment dictionary must contain 'filename', 'attachment_id', and 'message_id' keys.")
+            filename = attachment['filename']
 
-            with open(os.path.join(download_folder, attachment.filename), 'wb') as f:
+
+        try:
+            with open(os.path.join(download_folder, filename), 'wb') as f:
                 f.write(self.get_attachment_payload(attachment))
 
 
@@ -583,11 +643,6 @@ class GmailApiService:
         except Exception as e:
             raise
 
-    @overload
-    def delete_label(self, label_id: str) -> bool: ...
-    @overload
-    def delete_label(self, label: Label) -> bool: ...
-
     def delete_label(self, label: Union[Label, str]) -> bool:
         """
         Deletes this label.
@@ -608,21 +663,24 @@ class GmailApiService:
         except Exception as e:
             return False
 
-    def update_label(self, label: Label, new_name: str) -> "Label":
+    def update_label(self, label: Union[Label, str], new_name: str) -> "Label":
         """
         Updates the name of this label.
         Args:
-            label: The label to update
+            label: The label or label id to update
             new_name: The new name for the label.
 
         Returns:
             The updated Label object.
         """
+        
+        if isinstance(label, Label):
+            label = label.id
 
         try:
             updated_label = self._service.users().labels().patch(
                 userId='me',
-                id=label.id,
+                id=label,
                 body={'name': new_name}
             ).execute()
             label.name = updated_label.get('name')
@@ -706,7 +764,7 @@ class GmailApiService:
         except Exception as e:
             raise
 
-    def delete_thread(self, thread: EmailThread, permanent: bool = False) -> bool:
+    def delete_thread(self, thread: Union[EmailThread, str], permanent: bool = False) -> bool:
         """
         Deletes a thread (moves to trash or permanently deletes).
 
@@ -718,16 +776,19 @@ class GmailApiService:
             True if the operation was successful, False otherwise.
         """
 
+        if isinstance(thread, EmailThread):
+            thread = thread.thread_id
+
         try:
             if permanent:
-                self._service.users().threads().delete(userId='me', id=thread.thread_id).execute()
+                self._service.users().threads().delete(userId='me', id=thread).execute()
             else:
-                self._service.users().threads().trash(userId='me', id=thread.thread_id).execute()
+                self._service.users().threads().trash(userId='me', id=thread).execute()
             return True
         except Exception as e:
             return False
 
-    def modify_thread_labels(self, thread: EmailThread, add_labels: Optional[List[str]] = None, 
+    def modify_thread_labels(self, thread: Union[EmailThread, str], add_labels: Optional[List[str]] = None,
                            remove_labels: Optional[List[str]] = None) -> bool:
         """
         Modifies labels applied to a thread.
@@ -744,6 +805,9 @@ class GmailApiService:
         if not add_labels and not remove_labels:
             return True
 
+        if isinstance(thread, EmailThread):
+            thread = thread.thread_id
+
         try:
             body = {}
             if add_labels:
@@ -753,7 +817,7 @@ class GmailApiService:
 
             self._service.users().threads().modify(
                 userId='me',
-                id=thread.thread_id,
+                id=thread,
                 body=body
             ).execute()
             
@@ -761,7 +825,7 @@ class GmailApiService:
         except Exception as e:
             return False
 
-    def untrash_thread(self, thread: EmailThread) -> bool:
+    def untrash_thread(self, thread: Union[EmailThread, str]) -> bool:
         """
         Removes a thread from trash.
 
@@ -772,8 +836,11 @@ class GmailApiService:
             True if the operation was successful, False otherwise.
         """
 
+        if isinstance(thread, EmailThread):
+            thread = thread.thread_id
+
         try:
-            self._service.users().threads().untrash(userId='me', id=thread.thread_id).execute()
+            self._service.users().threads().untrash(userId='me', id=thread).execute()
             return True
         except Exception as e:
             return False
