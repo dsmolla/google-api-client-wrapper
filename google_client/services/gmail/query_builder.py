@@ -16,7 +16,7 @@ class EmailQueryBuilder:
     """
     Builder pattern for constructing Gmail queries with a fluent API.
     Provides a clean, readable way to build complex email queries.
-    
+
     Example usage:
         emails = (EmailMessage.query()
             .limit(50)
@@ -25,14 +25,14 @@ class EmailQueryBuilder:
             .with_attachments()
             .execute())
     """
-    
+
     def __init__(self, api_service_class):
         self._api_service = api_service_class
         self._max_results: Optional[int] = DEFAULT_MAX_RESULTS
         self._query_parts: List[str] = []
         self._include_spam_trash: bool = False
         self._label_ids: List[str] = []
-        
+
     def limit(self, count: int) -> "EmailQueryBuilder":
         """
         Set the maximum number of emails to retrieve.
@@ -45,7 +45,7 @@ class EmailQueryBuilder:
             raise ValueError(f"Limit must be between 1 and {MAX_RESULTS_LIMIT}")
         self._max_results = count
         return self
-        
+
     def search(self, query: str, exact_match: bool = False) -> "EmailQueryBuilder":
         """
         Add a search term to the query.
@@ -60,7 +60,7 @@ class EmailQueryBuilder:
                 query = f'"{query}"'
             self._query_parts.append(query)
         return self
-        
+
     def from_sender(self, email: str) -> "EmailQueryBuilder":
         """
         Filter emails from a specific sender.
@@ -72,7 +72,7 @@ class EmailQueryBuilder:
         if email:
             self._query_parts.append(f"from:{email}")
         return self
-        
+
     def to_recipient(self, email: str) -> "EmailQueryBuilder":
         """
         Filter emails sent to a specific recipient.
@@ -84,7 +84,7 @@ class EmailQueryBuilder:
         if email:
             self._query_parts.append(f"to:{email}")
         return self
-        
+
     def with_subject(self, subject: str) -> "EmailQueryBuilder":
         """
         Filter emails with specific subject content.
@@ -96,7 +96,7 @@ class EmailQueryBuilder:
         if subject:
             self._query_parts.append(f"subject:{subject}")
         return self
-        
+
     def with_attachments(self) -> "EmailQueryBuilder":
         """
         Filter emails that have attachments.
@@ -105,7 +105,7 @@ class EmailQueryBuilder:
         """
         self._query_parts.append("has:attachment")
         return self
-        
+
     def without_attachments(self) -> "EmailQueryBuilder":
         """
         Filter emails that don't have attachments.
@@ -114,7 +114,7 @@ class EmailQueryBuilder:
         """
         self._query_parts.append("-has:attachment")
         return self
-        
+
     def is_read(self) -> "EmailQueryBuilder":
         """
         Filter emails that are read.
@@ -123,7 +123,7 @@ class EmailQueryBuilder:
         """
         self._query_parts.append("-is:unread")
         return self
-        
+
     def is_unread(self) -> "EmailQueryBuilder":
         """
         Filter emails that are unread.
@@ -132,7 +132,7 @@ class EmailQueryBuilder:
         """
         self._query_parts.append("is:unread")
         return self
-        
+
     def is_starred(self) -> "EmailQueryBuilder":
         """
         Filter emails that are starred.
@@ -141,7 +141,7 @@ class EmailQueryBuilder:
         """
         self._query_parts.append("is:starred")
         return self
-        
+
     def is_important(self) -> "EmailQueryBuilder":
         """
         Filter emails that are marked as important.
@@ -150,7 +150,7 @@ class EmailQueryBuilder:
         """
         self._query_parts.append("is:important")
         return self
-        
+
     def in_folder(self, folder: str) -> "EmailQueryBuilder":
         """
         Filter emails in a specific folder/label.
@@ -186,7 +186,7 @@ class EmailQueryBuilder:
         if label:
             self._query_parts.append(f"-label:{label}")
         return self
-        
+
     def in_date_range(self, start_date: date, end_date: date) -> "EmailQueryBuilder":
         """
         Filter emails within a specific date range.
@@ -210,7 +210,7 @@ class EmailQueryBuilder:
         self._query_parts.append(f"after:{start_date_timestamp}")
         self._query_parts.append(f"before:{end_date_timestamp}")
         return self
-        
+
     def after_date(self, date_obj: date) -> "EmailQueryBuilder":
         """
         Filter emails after a specific date.
@@ -225,7 +225,7 @@ class EmailQueryBuilder:
 
         self._query_parts.append(f"after:{date_obj_timestamp}")
         return self
-        
+
     def before_date(self, date_obj: date) -> "EmailQueryBuilder":
         """
         Filter emails before a specific date.
@@ -239,7 +239,7 @@ class EmailQueryBuilder:
         date_timestamp = int(date_obj.timestamp())
         self._query_parts.append(f"before:{date_timestamp}")
         return self
-        
+
     def today(self) -> "EmailQueryBuilder":
         """
         Filter emails from today only.
@@ -252,7 +252,7 @@ class EmailQueryBuilder:
 
         self._query_parts.append(f"after:{today_timestamp}")
         return self
-        
+
     def yesterday(self) -> "EmailQueryBuilder":
         """
         Filter emails from yesterday only.
@@ -273,7 +273,7 @@ class EmailQueryBuilder:
         self._query_parts.append(f"before:{today_timestamp}")
 
         return self
-        
+
     def last_days(self, days: int) -> "EmailQueryBuilder":
         """
         Filter emails from the last N days.
@@ -284,7 +284,7 @@ class EmailQueryBuilder:
         """
         if days < 0:
             raise ValueError("Days must be positive")
-            
+
         start_date = datetime.now() - timedelta(days=days)
         start_date = datetime.combine(start_date, datetime.min.time())
         start_date = convert_datetime_to_local_timezone(start_date)
@@ -292,25 +292,25 @@ class EmailQueryBuilder:
 
         self._query_parts.append(f"after:{start_date_timestamp}")
         return self
-        
+
     def this_week(self) -> "EmailQueryBuilder":
         """
         Filter emails from this week.
         Returns:
             Self for method chaining
         """
-        days_since_monday = date.weekday(date.today() )  # Monday is 0
+        days_since_monday = date.weekday(date.today())  # Monday is 0
         return self.last_days(days_since_monday)
-        
+
     def this_month(self) -> "EmailQueryBuilder":
         """
         Filter emails from this month.
         Returns:
             Self for method chaining
         """
-        days_since_month_started = date.today().day - 1# Days in current month
+        days_since_month_started = date.today().day - 1  # Days in current month
         return self.last_days(days_since_month_started)
-        
+
     def larger_than(self, size_mb: int) -> "EmailQueryBuilder":
         """
         Filter emails larger than specified size.
@@ -323,7 +323,7 @@ class EmailQueryBuilder:
             raise ValueError("Size must be positive")
         self._query_parts.append(f"larger:{size_mb}M")
         return self
-        
+
     def smaller_than(self, size_mb: int) -> "EmailQueryBuilder":
         """
         Filter emails smaller than specified size.
@@ -336,7 +336,7 @@ class EmailQueryBuilder:
             raise ValueError("Size must be positive")
         self._query_parts.append(f"smaller:{size_mb}M")
         return self
-        
+
     def include_spam_trash(self, include: bool = True) -> "EmailQueryBuilder":
         """
         Include or exclude spam and trash emails.
@@ -347,7 +347,7 @@ class EmailQueryBuilder:
         """
         self._include_spam_trash = include
         return self
-        
+
     def with_label_ids(self, label_ids: List[str]) -> "EmailQueryBuilder":
         """
         Filter emails with specific label IDs.
@@ -358,7 +358,7 @@ class EmailQueryBuilder:
         """
         self._label_ids.extend(label_ids)
         return self
-        
+
     def execute(self) -> List["EmailMessage"]:
         """
         Execute the query and return the results.
@@ -366,9 +366,7 @@ class EmailQueryBuilder:
             List of EmailMessage objects matching the query
         """
         query_string = " ".join(self._query_parts) if self._query_parts else None
-        
 
-        
         # Use the service layer implementation instead of dataclass methods
         emails = self._api_service.list_emails(
             max_results=self._max_results,
@@ -405,9 +403,7 @@ class EmailQueryBuilder:
             List of EmailThread objects matching the query
         """
         query_string = " ".join(self._query_parts) if self._query_parts else None
-        
-        
-        
+
         # Use the service layer implementation to get threads
         threads = self._api_service.list_threads(
             max_results=self._max_results,
@@ -417,7 +413,7 @@ class EmailQueryBuilder:
         )
 
         return threads
-        
+
     def __repr__(self):
         query_string = " ".join(self._query_parts) if self._query_parts else "None"
         return f"EmailQueryBuilder(query='{query_string}', limit={self._max_results})"

@@ -12,7 +12,7 @@ class DriveQueryBuilder:
     """
     Builder pattern for constructing Drive queries with a fluent API.
     Provides a clean, readable way to build complex file queries.
-    
+
     Example usage:
         files = (user.drive.query()
             .limit(50)
@@ -21,7 +21,7 @@ class DriveQueryBuilder:
             .file_type("pdf")
             .execute())
     """
-    
+
     def __init__(self, api_service_class):
         self._api_service = api_service_class
         self._max_results: Optional[int] = DEFAULT_MAX_RESULTS
@@ -29,7 +29,7 @@ class DriveQueryBuilder:
         self._fields: Optional[str] = None
         self._order_by: Optional[str] = None
         self._page_token: Optional[str] = None
-        
+
     def limit(self, count: int) -> "DriveQueryBuilder":
         """
         Set the maximum number of files to retrieve.
@@ -42,7 +42,7 @@ class DriveQueryBuilder:
             raise ValueError(f"Limit must be between 1 and {MAX_RESULTS_LIMIT}")
         self._max_results = count
         return self
-        
+
     def search(self, query: str) -> "DriveQueryBuilder":
         """
         Add a search term to the query (searches name and content).
@@ -55,7 +55,7 @@ class DriveQueryBuilder:
             escaped_query = query.replace("'", "\'\'")
             self._query_parts.append(f"fullText contains '{escaped_query}'")
         return self
-        
+
     def name_contains(self, text: str) -> "DriveQueryBuilder":
         """
         Filter files whose name contains the specified text.
@@ -68,7 +68,7 @@ class DriveQueryBuilder:
             escaped_text = text.replace("'", "\'\'")
             self._query_parts.append(f"name contains '{escaped_text}'")
         return self
-        
+
     def name_equals(self, name: str) -> "DriveQueryBuilder":
         """
         Filter files with the exact name.
@@ -81,7 +81,7 @@ class DriveQueryBuilder:
             escaped_name = name.replace("'", "\'\'")
             self._query_parts.append(f"name = '{escaped_name}'")
         return self
-        
+
     def in_folder(self, folder: Union[str, "DriveFolder"]) -> "DriveQueryBuilder":
         """
         Filter files within a specific folder.
@@ -126,7 +126,7 @@ class DriveQueryBuilder:
             folder_id = folder.folder_id if hasattr(folder, 'folder_id') else folder
             self._query_parts.append(f"not '{folder_id}' in parents")
         return self
-        
+
     def file_type(self, mime_type: str) -> "DriveQueryBuilder":
         """
         Filter files by MIME type.
@@ -138,7 +138,7 @@ class DriveQueryBuilder:
         if mime_type:
             self._query_parts.append(f"mimeType = '{mime_type}'")
         return self
-        
+
     def folders_only(self) -> "DriveQueryBuilder":
         """
         Filter to show only folders.
@@ -147,7 +147,7 @@ class DriveQueryBuilder:
         """
         self._query_parts.append(f"mimeType = '{FOLDER_MIME_TYPE}'")
         return self
-        
+
     def files_only(self) -> "DriveQueryBuilder":
         """
         Filter to show only files (exclude folders).
@@ -182,7 +182,7 @@ class DriveQueryBuilder:
             escaped_text = text.replace("'", "\'\'")
             self._query_parts.append(f"mimeType = '{FOLDER_MIME_TYPE}' and name contains '{escaped_text}'")
         return self
-        
+
     def shared_with_me(self) -> "DriveQueryBuilder":
         """
         Filter to show only files shared with the user.
@@ -191,7 +191,7 @@ class DriveQueryBuilder:
         """
         self._query_parts.append("sharedWithMe = true")
         return self
-        
+
     def owned_by_me(self) -> "DriveQueryBuilder":
         """
         Filter to show only files owned by the user.
@@ -200,7 +200,7 @@ class DriveQueryBuilder:
         """
         self._query_parts.append("'me' in owners")
         return self
-        
+
     def starred(self) -> "DriveQueryBuilder":
         """
         Filter to show only starred files.
@@ -209,7 +209,7 @@ class DriveQueryBuilder:
         """
         self._query_parts.append("starred = true")
         return self
-        
+
     def trashed(self, include_trashed: bool = True) -> "DriveQueryBuilder":
         """
         Filter files based on trash status.
@@ -223,7 +223,7 @@ class DriveQueryBuilder:
         else:
             self._query_parts.append("trashed = false")
         return self
-        
+
     def created_after(self, date_time: datetime) -> "DriveQueryBuilder":
         """
         Filter files created after the specified datetime.
@@ -236,7 +236,7 @@ class DriveQueryBuilder:
             iso_date = convert_datetime_to_iso(date_time)
             self._query_parts.append(f"createdTime > '{iso_date}'")
         return self
-        
+
     def created_before(self, date_time: datetime) -> "DriveQueryBuilder":
         """
         Filter files created before the specified datetime.
@@ -249,7 +249,7 @@ class DriveQueryBuilder:
             iso_date = convert_datetime_to_iso(date_time)
             self._query_parts.append(f"createdTime < '{iso_date}'")
         return self
-        
+
     def modified_after(self, date_time: datetime) -> "DriveQueryBuilder":
         """
         Filter files modified after the specified datetime.
@@ -262,7 +262,7 @@ class DriveQueryBuilder:
             iso_date = convert_datetime_to_iso(date_time)
             self._query_parts.append(f"modifiedTime > '{iso_date}'")
         return self
-        
+
     def modified_before(self, date_time: datetime) -> "DriveQueryBuilder":
         """
         Filter files modified before the specified datetime.
@@ -275,7 +275,7 @@ class DriveQueryBuilder:
             iso_date = convert_datetime_to_iso(date_time)
             self._query_parts.append(f"modifiedTime < '{iso_date}'")
         return self
-        
+
     def with_extension(self, extension: str) -> "DriveQueryBuilder":
         """
         Filter files by file extension.
@@ -302,7 +302,7 @@ class DriveQueryBuilder:
         if query:
             self._query_parts.append(query)
         return self
-        
+
     def order_by(self, field: str, ascending: bool = True) -> "DriveQueryBuilder":
         """
         Set the order of results.
@@ -315,7 +315,7 @@ class DriveQueryBuilder:
         direction = "asc" if ascending else "desc"
         self._order_by = f"{field} {direction}"
         return self
-        
+
     def order_by_name(self, ascending: bool = True) -> "DriveQueryBuilder":
         """
         Order results by name.
@@ -325,7 +325,7 @@ class DriveQueryBuilder:
             Self for method chaining
         """
         return self.order_by("name", ascending)
-        
+
     def order_by_modified_time(self, ascending: bool = False) -> "DriveQueryBuilder":
         """
         Order results by modification time.
@@ -335,7 +335,7 @@ class DriveQueryBuilder:
             Self for method chaining
         """
         return self.order_by("modifiedTime", ascending)
-        
+
     def order_by_created_time(self, ascending: bool = False) -> "DriveQueryBuilder":
         """
         Order results by creation time.
@@ -345,7 +345,7 @@ class DriveQueryBuilder:
             Self for method chaining
         """
         return self.order_by("createdTime", ascending)
-        
+
     def fields(self, fields: str) -> "DriveQueryBuilder":
         """
         Set specific fields to retrieve from the API.
@@ -356,7 +356,7 @@ class DriveQueryBuilder:
         """
         self._fields = fields
         return self
-        
+
     def _build_query(self) -> str:
         """
         Build the final query string.
@@ -365,9 +365,9 @@ class DriveQueryBuilder:
         """
         if not self._query_parts:
             return ""
-        
+
         return " and ".join(f"({part})" for part in self._query_parts)
-        
+
     def execute(self) -> List["DriveItem"]:
         """
         Execute the query and return results.
@@ -375,7 +375,7 @@ class DriveQueryBuilder:
             List of DriveItem objects matching the query
         """
         query = self._build_query()
-        
+
         return self._api_service.list(
             query=query,
             max_results=self._max_results,

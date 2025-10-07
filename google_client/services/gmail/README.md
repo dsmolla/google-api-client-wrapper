@@ -76,6 +76,13 @@ gmail = user.gmail
 emails = gmail.list_emails()
 email = gmail.get_email(message_id)
 gmail.send_email(to=["user@example.com"], subject="Test")
+
+# Query builder for complex searches
+emails = (gmail.query()
+    .from_sender("boss@company.com")
+    .with_subject("urgent")
+    .is_unread()
+    .execute())
 ```
 
 ### EmailMessage
@@ -128,6 +135,29 @@ gmail.send_email(
     subject="Rich HTML Email",
     body_html="<h1>Hello!</h1><p>This is <b>HTML</b> content.</p>",
     attachment_paths=["./document.pdf", "./image.jpg"]
+)
+```
+
+### Creating Draft Emails
+
+#### Simple Draft
+```python
+draft = gmail.create_draft(
+    to=["recipient@example.com"],
+    subject="Draft Email",
+    body_text="This is a draft email that can be saved and sent later."
+)
+```
+
+#### Draft with HTML and Attachments
+```python
+draft = gmail.create_draft(
+    to=["recipient@example.com"],
+    cc=["cc@example.com"],
+    subject="Draft with Attachments",
+    body_html="<h1>Draft Email</h1><p>This draft includes attachments.</p>",
+    attachment_paths=["./document.pdf"],
+    thread_id="existing_thread_id"  # Optional: add to existing thread
 )
 ```
 
@@ -405,6 +435,47 @@ gmail.send_email(
 )
 ```
 
+## Batch Operations
+
+Handle multiple emails efficiently:
+
+### Batch Email Retrieval
+
+```python
+# Get multiple emails by ID
+message_ids = ["msg1_id", "msg2_id", "msg3_id"]
+emails = gmail.batch_get_emails(message_ids)
+
+print(f"Retrieved {len(emails)} emails in batch")
+```
+
+### Batch Email Sending
+
+```python
+# Send multiple emails at once
+email_data_list = [
+    {
+        "to": ["user1@example.com"],
+        "subject": "Welcome to our service",
+        "body_text": "Thank you for signing up!"
+    },
+    {
+        "to": ["user2@example.com"],
+        "subject": "Account confirmation",
+        "body_html": "<h1>Please confirm your account</h1>"
+    },
+    {
+        "to": ["user3@example.com"],
+        "subject": "Newsletter",
+        "body_text": "Latest updates...",
+        "attachment_paths": ["./newsletter.pdf"]
+    }
+]
+
+sent_emails = gmail.batch_send_emails(email_data_list)
+print(f"Sent {len(sent_emails)} emails in batch")
+```
+
 ## Error Handling
 
 The Gmail service includes comprehensive error handling:
@@ -541,23 +612,26 @@ setup_auto_reply(user.gmail, auto_reply_msg)
 
 ### GmailApiService
 
-| Method             | Description              | Parameters                                                                                                                   | Returns              |
-|--------------------|--------------------------|------------------------------------------------------------------------------------------------------------------------------|----------------------|
-| `query()`          | Create query builder     | None                                                                                                                         | `EmailQueryBuilder`  |
-| `list_emails()`    | List emails with filters | `max_results`, `query`, `include_spam_trash`, `label_ids`                                                                    | `List[EmailMessage]` |
-| `get_email()`      | Get specific email       | `message_id: str`                                                                                                            | `EmailMessage`       |
-| `send_email()`     | Send new email           | `to`, `subject`, `body_text`, `body_html`, `cc`, `bcc`, `attachment_paths`, `reply_to_message_id`, `references`, `thread_id` | `EmailMessage`       |
-| `reply()`          | Reply to email           | `original_email`, `body_text`, `body_html`, `attachment_paths`, `reply_all`                                                  | `EmailMessage`       |
-| `forward()`        | Forward email            | `original_email`, `to`, `include_attachments`                                                                                | `EmailMessage`       |
-| `mark_as_read()`   | Mark email as read       | `email: EmailMessage`                                                                                                        | `bool`               |
-| `mark_as_unread()` | Mark email as unread     | `email: EmailMessage`                                                                                                        | `bool`               |
-| `add_label()`      | Add labels to email      | `email: EmailMessage`, `labels: List[str]`                                                                                   | `bool`               |
-| `remove_label()`   | Remove labels from email | `email: EmailMessage`, `labels: List[str]`                                                                                   | `bool`               |
-| `delete_email()`   | Delete email             | `email: EmailMessage`, `permanent: bool`                                                                                     | `bool`               |
-| `create_label()`   | Create new label         | `name: str`                                                                                                                  | `Label`              |
-| `list_labels()`    | List all labels          | None                                                                                                                         | `List[Label]`        |
-| `delete_label()`   | Delete label             | `label: Union[Label, str]`                                                                                                   | `bool`               |
-| `update_label()`   | Update label name        | `label: Label`, `new_name: str`                                                                                              | `Label`              |
+| Method                 | Description                  | Parameters                                                                                                                   | Returns              |
+|------------------------|------------------------------|------------------------------------------------------------------------------------------------------------------------------|----------------------|
+| `query()`              | Create query builder         | None                                                                                                                         | `EmailQueryBuilder`  |
+| `list_emails()`        | List emails with filters     | `max_results`, `query`, `include_spam_trash`, `label_ids`                                                                    | `List[EmailMessage]` |
+| `get_email()`          | Get specific email           | `message_id: str`                                                                                                            | `EmailMessage`       |
+| `send_email()`         | Send new email               | `to`, `subject`, `body_text`, `body_html`, `cc`, `bcc`, `attachment_paths`, `reply_to_message_id`, `references`, `thread_id` | `EmailMessage`       |
+| `create_draft()`       | Create draft email           | `to`, `subject`, `body_text`, `body_html`, `cc`, `bcc`, `attachment_paths`, `reply_to_message_id`, `references`, `thread_id` | `EmailMessage`       |
+| `reply()`              | Reply to email               | `original_email`, `body_text`, `body_html`, `attachment_paths`, `reply_all`                                                  | `EmailMessage`       |
+| `forward()`            | Forward email                | `original_email`, `to`, `include_attachments`                                                                                | `EmailMessage`       |
+| `batch_get_emails()`   | Get multiple emails          | `message_ids: List[str]`                                                                                                     | `List[EmailMessage]` |
+| `batch_send_emails()`  | Send multiple emails         | `email_data_list: List[Dict[str, Any]]`                                                                                      | `List[EmailMessage]` |
+| `mark_as_read()`       | Mark email as read           | `email: Union[EmailMessage, str]`                                                                                            | `bool`               |
+| `mark_as_unread()`     | Mark email as unread         | `email: Union[EmailMessage, str]`                                                                                            | `bool`               |
+| `add_label()`          | Add labels to email          | `email: Union[EmailMessage, str]`, `labels: List[str]`                                                                       | `bool`               |
+| `remove_label()`       | Remove labels from email     | `email: Union[EmailMessage, str]`, `labels: List[str]`                                                                       | `bool`               |
+| `delete_email()`       | Delete email                 | `email: Union[EmailMessage, str]`, `permanent: bool`                                                                         | `bool`               |
+| `create_label()`       | Create new label             | `name: str`                                                                                                                  | `Label`              |
+| `list_labels()`        | List all labels              | None                                                                                                                         | `List[Label]`        |
+| `delete_label()`       | Delete label                 | `label: Union[Label, str]`                                                                                                   | `bool`               |
+| `update_label()`       | Update label name            | `label: Union[Label, str]`, `new_name: str`                                                                                  | `Label`              |
 
 ### EmailQueryBuilder
 

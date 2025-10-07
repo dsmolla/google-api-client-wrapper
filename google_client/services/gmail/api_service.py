@@ -1,15 +1,14 @@
 import base64
 import os
-from typing import Optional, List, Dict, Any, overload, Union
+from typing import Optional, List, Dict, Any, Union
 
 from googleapiclient.errors import HttpError
 
-from .types import EmailMessage, EmailAttachment, Label, EmailThread
-from .query_builder import EmailQueryBuilder
 from . import utils
 from .constants import DEFAULT_MAX_RESULTS, MAX_RESULTS_LIMIT
-
 from .exceptions import GmailError, GmailPermissionError, AttachmentNotFoundError
+from .query_builder import EmailQueryBuilder
+from .types import EmailMessage, EmailAttachment, Label, EmailThread
 
 
 class GmailApiService:
@@ -17,11 +16,11 @@ class GmailApiService:
     Service layer for Gmail API operations.
     Contains all Gmail API functionality that was removed from dataclasses.
     """
-    
+
     def __init__(self, service: Any):
         """
         Initialize Gmail service.
-        
+
         Args:
             service: The Gmail API service instance
         """
@@ -84,7 +83,6 @@ class GmailApiService:
         try:
             result = self._service.users().messages().list(**request_params).execute()
             messages = result.get('messages', [])
-
 
             # Fetch full message details
             email_messages = []
@@ -151,7 +149,6 @@ class GmailApiService:
         Returns:
             An EmailMessage object representing the message sent.
         """
-        
 
         # Create message
         raw_message = utils.create_message(
@@ -165,7 +162,6 @@ class GmailApiService:
             references=references,
             reply_to_message_id=reply_to_message_id
         )
-
 
         try:
             send_result = self._service.users().messages().send(
@@ -209,7 +205,7 @@ class GmailApiService:
         Returns:
             A dictionary containing the draft information including the draft ID.
         """
-        
+
         # Create message
         raw_message = utils.create_message(
             to=to,
@@ -229,7 +225,7 @@ class GmailApiService:
                     'raw': raw_message
                 }
             }
-            
+
             if thread_id:
                 draft_body['message']['threadId'] = thread_id
 
@@ -310,10 +306,9 @@ class GmailApiService:
         else:
             to = [original_email.sender.email]
 
-        
         # Build enhanced references header
         enhanced_references = utils.build_references_header(original_email)
-        
+
         return self.send_email(
             to=to,
             subject=original_email.subject,
@@ -333,18 +328,18 @@ class GmailApiService:
     ) -> EmailMessage:
         """
         Forwards an email message to new recipients.
-        
+
         Args:
             original_email: The original email message being forwarded or its ID
             to: List of recipient email addresses
             include_attachments: Whether to include original email's attachments
-            
+
         Returns:
             An EmailMessage object representing the forwarded message
         """
         if isinstance(original_email, str):
             original_email = self.get_email(original_email)
-        
+
         # Prepare subject with Fwd: prefix
         subject = f"Fwd: {original_email.subject}" if original_email.subject else "Fwd:"
 
@@ -372,15 +367,15 @@ class GmailApiService:
             body_html=forwarded_body_html,
             attachment_data_list=attachment_data_list if attachment_data_list else None
         )
-        
+
         try:
             send_result = self._service.users().messages().send(
                 userId='me',
                 body={'raw': raw_message}
             ).execute()
-            
+
             return self.get_email(send_result['id'])
-            
+
         except Exception as e:
             raise
 
@@ -460,11 +455,6 @@ class GmailApiService:
                 id=message_id,
                 body={'addLabelIds': labels}
             ).execute()
-            # Update local state
-            for label in labels:
-                if label not in email.labels:
-                    email.labels.append(label)
-                    break
             return True
         except Exception as e:
             return False
@@ -556,14 +546,15 @@ class GmailApiService:
 
         return data
 
-    def download_attachment(self, attachment: Union[EmailAttachment, dict], download_folder: str = 'attachments'):
+    def download_attachment(self, attachment: Union[EmailAttachment, dict],
+                            download_folder: str = 'attachments') -> str:
         """
         Downloads an email attachment to the specified folder.
         Args:
             attachment: The EmailAttachment object or dictionary containing attachment details. If a dictionary is provided, it must contain 'filename', 'attachment_id', and 'message_id' keys.
             download_folder: The folder path where the attachment will be saved. Defaults to 'attachments'.
         Returns:
-            None
+            The file path of the downloaded attachment
         """
         if not os.path.exists(download_folder):
             os.makedirs(download_folder)
@@ -572,13 +563,16 @@ class GmailApiService:
             filename = attachment.filename
         else:
             if not all(k in attachment for k in ('filename', 'attachment_id', 'message_id')):
-                raise ValueError("Attachment dictionary must contain 'filename', 'attachment_id', and 'message_id' keys.")
+                raise ValueError(
+                    "Attachment dictionary must contain 'filename', 'attachment_id', and 'message_id' keys.")
             filename = attachment['filename']
 
-
         try:
-            with open(os.path.join(download_folder, filename), 'wb') as f:
+            file_path = os.path.join(download_folder, filename)
+            with open(file_path, 'wb') as f:
                 f.write(self.get_attachment_payload(attachment))
+
+            return file_path
 
 
         except HttpError as e:
@@ -673,7 +667,7 @@ class GmailApiService:
         Returns:
             The updated Label object.
         """
-        
+
         if isinstance(label, Label):
             label = label.id
 
@@ -684,7 +678,7 @@ class GmailApiService:
                 body={'name': new_name}
             ).execute()
             label.name = updated_label.get('name')
-            return label
+            return updated_label
         except Exception as e:
             raise
 
@@ -711,8 +705,6 @@ class GmailApiService:
         if max_results and (max_results < 1 or max_results > MAX_RESULTS_LIMIT):
             raise ValueError(f"max_results must be between 1 and {MAX_RESULTS_LIMIT}")
 
-
-
         # Get list of thread IDs
         request_params = {
             'userId': 'me',
@@ -728,7 +720,6 @@ class GmailApiService:
         try:
             result = self._service.users().threads().list(**request_params).execute()
             threads = result.get('threads', [])
-
 
             # Fetch full thread details
             email_threads = []
@@ -789,7 +780,7 @@ class GmailApiService:
             return False
 
     def modify_thread_labels(self, thread: Union[EmailThread, str], add_labels: Optional[List[str]] = None,
-                           remove_labels: Optional[List[str]] = None) -> bool:
+                             remove_labels: Optional[List[str]] = None) -> bool:
         """
         Modifies labels applied to a thread.
 
@@ -820,7 +811,7 @@ class GmailApiService:
                 id=thread,
                 body=body
             ).execute()
-            
+
             return True
         except Exception as e:
             return False
@@ -844,4 +835,3 @@ class GmailApiService:
             return True
         except Exception as e:
             return False
-

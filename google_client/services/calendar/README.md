@@ -77,6 +77,13 @@ calendar = user.calendar
 events = calendar.list_events()
 event = calendar.get_event(event_id)
 calendar.create_event(start=start_time, end=end_time, summary="Meeting")
+
+# Query builder for complex searches
+events = (calendar.query()
+    .search("meeting")
+    .today()
+    .with_location()
+    .execute())
 ```
 
 ### CalendarEvent
@@ -333,6 +340,9 @@ Handle multiple events efficiently:
 # Get multiple events by ID
 event_ids = ["event1", "event2", "event3"]
 events = calendar.batch_get_events(event_ids)
+
+# Also works with calendar ID specification
+events = calendar.batch_get_events(event_ids, calendar_id="work@company.com")
 ```
 
 ### Batch Creation
@@ -355,6 +365,9 @@ events_data = [
 ]
 
 created_events = calendar.batch_create_events(events_data)
+
+# Create in specific calendar
+created_events = calendar.batch_create_events(events_data, calendar_id="team@company.com")
 ```
 
 ## Error Handling

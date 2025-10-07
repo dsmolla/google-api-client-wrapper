@@ -1,5 +1,5 @@
 from datetime import datetime, date
-from typing import Optional, List, Any, Dict
+from typing import Optional, List, Any, Dict, Union
 
 from googleapiclient.errors import HttpError
 
@@ -20,11 +20,11 @@ class TasksApiService:
     Service layer for Tasks API operations.
     Contains all Tasks API functionality that was removed from dataclasses.
     """
-    
+
     def __init__(self, service: Any):
         """
         Initialize Tasks service.
-        
+
         Args:
             service: The Tasks API service instance
         """
@@ -80,14 +80,13 @@ class TasksApiService:
         if max_results and (max_results < 1 or max_results > MAX_RESULTS_LIMIT):
             raise ValueError(f"max_results must be between 1 and {MAX_RESULTS_LIMIT}")
 
-
         try:
             # Build request parameters
             request_params = {
                 'tasklist': task_list_id,
                 'maxResults': max_results
             }
-            
+
             # Add optional filters
             if completed_min:
                 request_params['completedMin'] = completed_min.isoformat() + 'Z'
@@ -105,7 +104,6 @@ class TasksApiService:
             # Make API call
             result = self._service.tasks().list(**request_params).execute()
             tasks_data = result.get('items', [])
-
 
             # Parse tasks
             tasks = []
@@ -144,9 +142,9 @@ class TasksApiService:
                 tasklist=task_list_id,
                 task=task_id
             ).execute()
-            
+
             return utils.from_google_task(task_data, task_list_id)
-            
+
         except HttpError as e:
             if e.resp.status == 404:
                 raise TasksNotFoundError(f"Task not found: {task_id}")
@@ -196,10 +194,10 @@ class TasksApiService:
                 tasklist=task_list_id,
                 body=task_body
             ).execute()
-            
+
             task = utils.from_google_task(created_task, task_list_id)
             return task
-            
+
         except HttpError as e:
             if e.resp.status == 403:
                 raise TasksPermissionError(f"Permission denied creating task: {e}")
@@ -234,10 +232,10 @@ class TasksApiService:
                 task=task.task_id,
                 body=task_body
             ).execute()
-            
+
             task = utils.from_google_task(updated_task, task_list_id)
             return task
-            
+
         except HttpError as e:
             if e.resp.status == 404:
                 raise TasksNotFoundError(f"Task not found: {task.task_id}")
@@ -250,7 +248,7 @@ class TasksApiService:
         except Exception as e:
             raise TasksError(f"Unexpected error updating task: {e}")
 
-    def delete_task(self, task: Task, task_list_id: str = DEFAULT_TASK_LIST_ID) -> bool:
+    def delete_task(self, task: Union[Task, str], task_list_id: str = DEFAULT_TASK_LIST_ID) -> bool:
         """
         Deletes a task.
 
@@ -263,20 +261,24 @@ class TasksApiService:
         """
 
         try:
+            if isinstance(task, Task):
+                task_id = task.task_id
+            elif isinstance(task, str):
+                task_id = task
             self._service.tasks().delete(
                 tasklist=task_list_id,
-                task=task.task_id
+                task=task_id
             ).execute()
-            
+
             return True
-            
+
         except HttpError as e:
             if e.resp.status == 404:
-                raise TasksNotFoundError(f"Task not found: {task.task_id}")
+                raise TasksNotFoundError(f"Task not found: {task_id}")
             elif e.resp.status == 403:
                 raise TasksPermissionError(f"Permission denied deleting task: {e}")
             else:
-                raise TasksError(f"Tasks API error deleting task {task.task_id}: {e}")
+                raise TasksError(f"Tasks API error deleting task {task_id}: {e}")
         except Exception as e:
             raise TasksError(f"Unexpected error deleting task: {e}")
 
@@ -311,10 +313,10 @@ class TasksApiService:
                 request_params['previous'] = previous
 
             moved_task = self._service.tasks().move(**request_params).execute()
-            
+
             task = utils.from_google_task(moved_task, task_list_id)
             return task
-            
+
         except HttpError as e:
             if e.resp.status == 404:
                 raise TasksNotFoundError(f"Task not found: {task.task_id}")
@@ -325,7 +327,7 @@ class TasksApiService:
         except Exception as e:
             raise TaskMoveError(f"Unexpected error moving task: {e}")
 
-    def mark_completed(self, task: Task, task_list_id: str = DEFAULT_TASK_LIST_ID) -> Task:
+    def mark_completed(self, task: Union[str, Task], task_list_id: str = DEFAULT_TASK_LIST_ID) -> Task:
         """
         Marks a task as completed.
 
@@ -336,11 +338,13 @@ class TasksApiService:
         Returns:
             A Task object representing the updated task.
         """
+        if isinstance(task, str):
+            task = self.get_task(task_id=task, task_list_id=task_list_id)
         task.status = TASK_STATUS_COMPLETED
         task.completed = date.today()
         return self.update_task(task=task, task_list_id=task_list_id)
 
-    def mark_incomplete(self, task: Task, task_list_id: str = DEFAULT_TASK_LIST_ID) -> Task:
+    def mark_incomplete(self, task: Union[str, Task], task_list_id: str = DEFAULT_TASK_LIST_ID) -> Task:
         """
         Marks a task as needing action (incomplete).
 
@@ -351,6 +355,8 @@ class TasksApiService:
         Returns:
             A Task object representing the updated task.
         """
+        if isinstance(task, str):
+            task = self.get_task(task_id=task, task_list_id=task_list_id)
         task.completed = None
         task.status = TASK_STATUS_NEEDS_ACTION
         return self.update_task(task=task, task_list_id=task_list_id)
@@ -367,7 +373,6 @@ class TasksApiService:
         try:
             result = self._service.tasklists().list().execute()
             task_lists_data = result.get('items', [])
-
 
             # Parse task lists
             task_lists = []
@@ -402,9 +407,9 @@ class TasksApiService:
             task_list_data = self._service.tasklists().get(
                 tasklist=task_list_id
             ).execute()
-            
+
             return utils.from_google_task_list(task_list_data)
-            
+
         except HttpError as e:
             if e.resp.status == 404:
                 raise TasksNotFoundError(f"Task list not found: {task_list_id}")
@@ -434,10 +439,10 @@ class TasksApiService:
             created_task_list = self._service.tasklists().insert(
                 body=task_list_body
             ).execute()
-            
+
             task_list = utils.from_google_task_list(created_task_list)
             return task_list
-            
+
         except HttpError as e:
             if e.resp.status == 403:
                 raise TasksPermissionError(f"Permission denied creating task list: {e}")
@@ -474,7 +479,7 @@ class TasksApiService:
             task_list.title = title
             task_list = utils.from_google_task_list(updated_task_list)
             return task_list
-            
+
         except HttpError as e:
             if e.resp.status == 404:
                 raise TasksNotFoundError(f"Task list not found: {task_list.task_list_id}")
@@ -502,9 +507,9 @@ class TasksApiService:
             self._service.tasklists().delete(
                 tasklist=task_list.task_list_id
             ).execute()
-            
+
             return True
-            
+
         except HttpError as e:
             if e.resp.status == 404:
                 raise TasksNotFoundError(f"Task list not found: {task_list.task_list_id}")
@@ -539,7 +544,8 @@ class TasksApiService:
 
         return tasks
 
-    def batch_create_tasks(self, tasks_data: List[Dict[str, Any]], task_list_id: str = DEFAULT_TASK_LIST_ID) -> List[Task]:
+    def batch_create_tasks(self, tasks_data: List[Dict[str, Any]], task_list_id: str = DEFAULT_TASK_LIST_ID) -> List[
+        Task]:
         """
         Creates multiple tasks.
 

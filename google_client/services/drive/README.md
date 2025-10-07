@@ -83,6 +83,13 @@ drive = user.drive
 files = drive.list()
 file = drive.get("file_id_here")
 drive.upload_file("document.pdf", name="My Document")
+
+# Query builder for complex searches
+files = (drive.query()
+    .search("important documents")
+    .in_folder(folder_id)
+    .file_type("application/pdf")
+    .execute())
 ```
 
 ### DriveFile

@@ -75,6 +75,13 @@ tasks = user.tasks
 all_tasks = tasks.list_tasks()
 task = tasks.get_task("task_id_123")
 tasks.create_task(title="New Task", due=date.today())
+
+# Query builder for complex searches
+urgent_tasks = (tasks.query()
+    .due_today()
+    .show_completed(False)
+    .in_task_list("work_list")
+    .execute())
 ```
 
 ### Task
@@ -339,6 +346,10 @@ success = tasks.delete_task_list(new_list)
 task_ids = ["task1_id", "task2_id", "task3_id"]
 batch_tasks = tasks.batch_get_tasks("list_id", task_ids)
 
+# Get tasks from specific task list
+work_task_ids = ["work1", "work2", "work3"]
+work_tasks = tasks.batch_get_tasks("work_list_id", work_task_ids)
+
 # Create multiple tasks
 tasks_data = [
     {"title": "Task 1", "notes": "First task description"},
@@ -346,6 +357,13 @@ tasks_data = [
     {"title": "Task 3", "parent": "parent_task_id"}
 ]
 created_tasks = tasks.batch_create_tasks(tasks_data, "project_list_id")
+
+# Create tasks in default list
+default_tasks_data = [
+    {"title": "Daily standup", "due": date.today()},
+    {"title": "Review PRs", "notes": "Check pending pull requests"}
+]
+default_tasks = tasks.batch_create_tasks(default_tasks_data)
 
 print(f"Created {len(created_tasks)} tasks in batch")
 ```
@@ -532,8 +550,8 @@ cleanup_completed_tasks(user.tasks)
 | `update_task()`        | Update existing task    | `task: Task`, `task_list_id: str`                                                                                      | `Task`             |
 | `delete_task()`        | Delete task             | `task: Task`, `task_list_id: str`                                                                                      | `bool`             |
 | `move_task()`          | Move task position      | `task: Task`, `task_list_id`, `parent`, `previous`                                                                     | `Task`             |
-| `mark_completed()`     | Mark as completed       | `task: Task`, `task_list_id: str`                                                                                      | `Task`             |
-| `mark_incomplete()`    | Mark as incomplete      | `task: Task`, `task_list_id: str`                                                                                      | `Task`             |
+| `mark_completed()`     | Mark as completed       | `task: Union[Task, str]`, `task_list_id: str`                                                                          | `Task`             |
+| `mark_incomplete()`    | Mark as incomplete      | `task: Union[Task, str]`, `task_list_id: str`                                                                          | `Task`             |
 | `list_task_lists()`    | List all task lists     | None                                                                                                                   | `List[TaskList]`   |
 | `get_task_list()`      | Get specific task list  | `task_list_id: str`                                                                                                    | `TaskList`         |
 | `create_task_list()`   | Create new task list    | `title: str`                                                                                                           | `TaskList`         |
