@@ -36,7 +36,7 @@ dependencies = [
     "google-auth-oauthlib>=1.2.1",
     "tzlocal>=5.3.1",
     "html2text>=2025.4.15",
-    "smolagents>=0.6.0"
+    "pydantic>=2.11.7"
 ]
 
 [project.urls]
