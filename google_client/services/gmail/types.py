@@ -1,4 +1,3 @@
-
 from typing import Optional, List
 from datetime import datetime
 from pydantic import BaseModel, Field
@@ -13,7 +12,6 @@ class EmailAddress(BaseModel):
     """
     email: str = Field(..., description="The email address")
     name: Optional[str] = Field(None, description="The display name")
-
 
     def to_dict(self) -> dict:
         """
@@ -41,7 +39,6 @@ class EmailAttachment(BaseModel):
     size: int = Field(..., description="The size of the attachment in bytes")
     attachment_id: str = Field(..., description="The unique identifier for the attachment in Gmail")
     message_id: str = Field(..., description="The message id of the message the attachment is attached to")
-
 
     def to_dict(self) -> dict:
         """
@@ -87,7 +84,8 @@ class EmailThread(BaseModel):
     Represents a Gmail thread containing multiple related messages.
     """
     thread_id: Optional[str] = Field(None, description="Unique identifier for the thread")
-    messages: List["EmailMessage"] = Field(default_factory=list, description="List of EmailMessage objects in this thread")
+    messages: List["EmailMessage"] = Field(default_factory=list,
+                                           description="List of EmailMessage objects in this thread")
     snippet: Optional[str] = Field(None, description="A short snippet of the thread content")
     history_id: Optional[str] = Field(None, description="The history ID of the thread")
 
@@ -129,7 +127,7 @@ class EmailThread(BaseModel):
                 participants.add((message.sender.email, message.sender.name))
             for recipient in message.recipients + message.cc_recipients + message.bcc_recipients:
                 participants.add((recipient.email, recipient.name))
-        
+
         return [EmailAddress(email=email, name=name) for email, name in participants]
 
     def __repr__(self):
@@ -159,9 +157,11 @@ class EmailMessage(BaseModel):
     attachments: List[EmailAttachment] = Field(default_factory=list, description="List of attachments in the email")
 
     sender: Optional[EmailAddress] = Field(None, description="The sender's email address information")
-    recipients: List[EmailAddress] = Field(default_factory=list, description="List of recipient email addresses (To field)")
+    recipients: List[EmailAddress] = Field(default_factory=list,
+                                           description="List of recipient email addresses (To field)")
     cc_recipients: List[EmailAddress] = Field(default_factory=list, description="List of CC recipient email addresses")
-    bcc_recipients: List[EmailAddress] = Field(default_factory=list, description="List of BCC recipient email addresses")
+    bcc_recipients: List[EmailAddress] = Field(default_factory=list,
+                                               description="List of BCC recipient email addresses")
 
     date_time: Optional[datetime] = Field(None, description="When the message was sent or received")
 
@@ -237,6 +237,20 @@ class EmailMessage(BaseModel):
             True if the message has the label, False otherwise.
         """
         return label in self.labels
+
+    def to_dict(self):
+        return {
+            "message_id": self.message_id,
+            "thread_id": self.thread_id,
+            "sender": self.sender.email,
+            "recipients": [recipient.email for recipient in self.recipients],
+            "date_time": convert_datetime_to_readable(self.date_time),
+            "subject": self.subject,
+            "labels": self.labels,
+            "snippet": self.snippet.encode("ascii", "ignore").decode("ascii"),
+            "body": self.get_plain_text_content().encode("ascii", "ignore").decode("ascii"),
+            "attachments": [attachment.to_dict() for attachment in self.attachments],
+        }
 
     def __repr__(self):
         return (

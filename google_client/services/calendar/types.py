@@ -50,9 +50,12 @@ class CalendarEvent(BaseModel):
     start: Optional[datetime] = Field(None, description="The start time of the event as a datetime object")
     end: Optional[datetime] = Field(None, description="The end time of the event as a datetime object")
     html_link: Optional[str] = Field(None, description="A hyperlink to the event on Google Calendar")
-    attendees: List[Attendee] = Field(default_factory=list, description="A list of Attendee objects representing the people invited to the event")
-    recurrence: List[str] = Field(default_factory=list, description="A list of strings defining the recurrence rules for the event in RFC 5545 format")
-    recurring_event_id: Optional[str] = Field(None, description="The ID of the recurring event if this event is part of a series")
+    attendees: List[Attendee] = Field(default_factory=list,
+                                      description="A list of Attendee objects representing the people invited to the event")
+    recurrence: List[str] = Field(default_factory=list,
+                                  description="A list of strings defining the recurrence rules for the event in RFC 5545 format")
+    recurring_event_id: Optional[str] = Field(None,
+                                              description="The ID of the recurring event if this event is part of a series")
     creator: Optional[str] = Field(None, description="The creator of the event")
     organizer: Optional[str] = Field(None, description="The organizer of the event")
     status: Optional[str] = Field("confirmed", description="The status of the event (confirmed, tentative, cancelled)")
@@ -164,7 +167,7 @@ class CalendarEvent(BaseModel):
             Dictionary representation suitable for API calls.
         """
         event_dict = {}
-        
+
         if self.event_id:
             event_dict["id"] = self.event_id
         if self.summary:
@@ -173,6 +176,8 @@ class CalendarEvent(BaseModel):
             event_dict["description"] = self.description
         if self.location:
             event_dict["location"] = self.location
+        if self.start:
+            event_dict["time"] = convert_datetime_to_readable(self.start, self.end)
         if self.html_link:
             event_dict["htmlLink"] = self.html_link
         if self.recurrence:
@@ -185,10 +190,10 @@ class CalendarEvent(BaseModel):
             event_dict["organizer"] = self.organizer
         if self.status:
             event_dict["status"] = self.status
-            
+
         if self.attendees:
             event_dict["attendees"] = [attendee.to_dict() for attendee in self.attendees]
-            
+
         return event_dict
 
     def __repr__(self):
@@ -210,46 +215,45 @@ class TimeSlot(BaseModel):
     """
     start: datetime = Field(..., description="Start datetime of the time slot")
     end: datetime = Field(..., description="End datetime of the time slot")
-    
+
     def model_post_init(self, __context__: Any):
         if self.start >= self.end:
             raise ValueError("Start time must be before end time")
-    
+
     def duration(self) -> int:
         """
         Calculate the duration of the time slot in minutes.
-        
+
         Returns:
             Duration in minutes
         """
         return int((self.end - self.start).total_seconds() / 60)
-    
+
     def overlaps_with(self, other: "TimeSlot") -> bool:
         """
         Check if this time slot overlaps with another time slot.
-        
+
         Args:
             other: Another TimeSlot to check for overlap
-            
+
         Returns:
             True if the time slots overlap, False otherwise
         """
         return self.start < other.end and self.end > other.start
-    
+
     def contains_time(self, time_point: datetime) -> bool:
         """
         Check if a specific datetime falls within this time slot.
-        
+
         Args:
             time_point: Datetime to check
-            
+
         Returns:
             True if the time point is within this slot, False otherwise
         """
         return self.start <= time_point < self.end
-    
-    def __str__(self):
 
+    def __str__(self):
         return convert_datetime_to_readable(
             convert_datetime_to_local_timezone(self.start),
             convert_datetime_to_local_timezone(self.end)
@@ -262,86 +266,88 @@ class FreeBusyResponse(BaseModel):
     """
     start: datetime = Field(..., description="Start time of the query")
     end: datetime = Field(..., description="End time of the query")
-    calendars: Dict[str, List[TimeSlot]] = Field(default_factory=dict, description="Dictionary mapping calendar IDs to their busy periods")
-    errors: Dict[str, str] = Field(default_factory=dict, description="Dictionary mapping calendar IDs to any errors encountered")
-    
+    calendars: Dict[str, List[TimeSlot]] = Field(default_factory=dict,
+                                                 description="Dictionary mapping calendar IDs to their busy periods")
+    errors: Dict[str, str] = Field(default_factory=dict,
+                                   description="Dictionary mapping calendar IDs to any errors encountered")
+
     def get_busy_periods(self, calendar_id: str = "primary") -> List[TimeSlot]:
         """
         Get busy periods for a specific calendar.
-        
+
         Args:
             calendar_id: Calendar ID to get busy periods for
-            
+
         Returns:
             List of TimeSlot objects representing busy periods
         """
         return self.calendars.get(calendar_id, [])
-    
+
     def is_time_free(self, time_point: datetime, calendar_id: str = "primary") -> bool:
         """
         Check if a specific time is free in the given calendar.
-        
+
         Args:
             time_point: Datetime to check
             calendar_id: Calendar ID to check
-            
+
         Returns:
             True if the time is free, False if busy
         """
         if not (self.start <= time_point <= self.end):
             raise ValueError("Time point is outside the queried range")
-            
+
         busy_periods = self.get_busy_periods(calendar_id)
         return not any(period.contains_time(time_point) for period in busy_periods)
-    
+
     def is_slot_free(self, slot: TimeSlot, calendar_id: str = "primary") -> bool:
         """
         Check if an entire time slot is free in the given calendar.
-        
+
         Args:
             slot: TimeSlot to check
             calendar_id: Calendar ID to check
-            
+
         Returns:
             True if the entire slot is free, False if any part is busy
         """
         busy_periods = self.get_busy_periods(calendar_id)
         return not any(period.overlaps_with(slot) for period in busy_periods)
-    
+
     def get_free_slots(self, duration_minutes: int = 60, calendar_id: str = "primary") -> List[TimeSlot]:
         """
         Get all free time slots of a specified duration within the queried range.
-        
+
         Args:
             duration_minutes: Minimum duration for free slots in minutes
             calendar_id: Calendar ID to get free slots for
-            
+
         Returns:
             List of TimeSlot objects representing available time slots
         """
         from ...utils.datetime import current_datetime_local_timezone
-        
+
         busy_periods = sorted(self.get_busy_periods(calendar_id), key=lambda x: x.start)
         free_slots = []
-        
+
         # Start from the beginning of the range or current time (whichever is later)
         current_time = max(self.start, current_datetime_local_timezone())
-        
+
         # Check time before first busy period
         if busy_periods and current_time < busy_periods[0].start:
             gap_duration = (busy_periods[0].start - current_time).total_seconds() / 60
             if gap_duration >= duration_minutes:
                 free_slots.append(TimeSlot(start=current_time, end=busy_periods[0].start))
-        
+
         # Check gaps between busy periods
         for i in range(len(busy_periods) - 1):
             gap_start = busy_periods[i].end
             gap_end = busy_periods[i + 1].start
             gap_duration = (gap_end - gap_start).total_seconds() / 60
-            
+
             if gap_duration >= duration_minutes:
                 free_slots.append(TimeSlot(start=gap_start, end=gap_end))
-        
+
         # Check time after last busy period
         if busy_periods:
             gap_start = busy_periods[-1].end
@@ -354,13 +360,13 @@ class FreeBusyResponse(BaseModel):
             gap_duration = (self.end - current_time).total_seconds() / 60
             if gap_duration >= duration_minutes:
                 free_slots.append(TimeSlot(start=current_time, end=self.end))
-        
+
         return free_slots
-    
+
     def has_errors(self) -> bool:
         """
         Check if there were any errors in the freebusy query.
-        
+
         Returns:
             True if there were errors, False otherwise
         """
