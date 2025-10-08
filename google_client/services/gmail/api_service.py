@@ -26,6 +26,9 @@ class GmailApiService:
         """
         self._service = service
 
+    def get_current_user_email(self) -> str:
+        return self._service.users().getProfile(userId='me').execute().get("emailAddress")
+
     def query(self) -> EmailQueryBuilder:
         """
         Create a new EmailQueryBuilder for building complex email queries with a fluent API.
