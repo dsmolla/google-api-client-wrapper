@@ -1,7 +1,10 @@
+import asyncio
+from concurrent.futures import ThreadPoolExecutor
 import base64
 import os
 from typing import Optional, List, Dict, Any, Union
 
+from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 
 from . import utils
@@ -17,7 +20,7 @@ class GmailApiService:
     Contains all Gmail API functionality that was removed from dataclasses.
     """
 
-    def __init__(self, service: Any):
+    def __init__(self, service: Any, creds):
         """
         Initialize Gmail service.
 
@@ -25,6 +28,8 @@ class GmailApiService:
             service: The Gmail API service instance
         """
         self._service = service
+        self._executor = ThreadPoolExecutor()
+        self._credentials = creds
 
     def get_current_user_email(self) -> str:
         return self._service.users().getProfile(userId='me').execute().get("emailAddress")
@@ -47,7 +52,7 @@ class GmailApiService:
         from .query_builder import EmailQueryBuilder
         return EmailQueryBuilder(self)
 
-    def list_emails(
+    async def list_emails(
             self,
             max_results: Optional[int] = DEFAULT_MAX_RESULTS,
             query: Optional[str] = None,
@@ -68,10 +73,9 @@ class GmailApiService:
             If no messages are found, an empty list is returned.
         """
         # Input validation
-        if max_results and (max_results < 1 or max_results > MAX_RESULTS_LIMIT):
+        if max_results < 1 or max_results > MAX_RESULTS_LIMIT:
             raise ValueError(f"max_results must be between 1 and {MAX_RESULTS_LIMIT}")
 
-        # Get list of message IDs
         request_params = {
             'userId': 'me',
             'maxResults': max_results,
@@ -84,23 +88,40 @@ class GmailApiService:
             request_params['labelIds'] = label_ids
 
         try:
-            result = self._service.users().messages().list(**request_params).execute()
+            result = build("gmail", "v1", credentials=self._credentials).users().messages().list(**request_params).execute()
             messages = result.get('messages', [])
 
-            # Fetch full message details
             email_messages = []
             for message in messages:
-                try:
-                    email_messages.append(self.get_email(message['id']))
-                except Exception as e:
-                    pass
+                task = asyncio.create_task(self.get_email(message['id']))
+                email_messages.append(task)
 
-            return email_messages
+            # # Fetch full message details
+            # async def fetch_all_emails():
+            #     email_tasks = []
+            #     for message in messages:
+            #         try:
+            #             task = asyncio.create_task(self.get_email(message['id']))
+            #             email_tasks.append(task)
+            #         except Exception:
+            #             pass
+            #     return await asyncio.gather(*email_tasks)
+            #
+            # # Run the async function in the event loop
+            # try:
+            #     loop = asyncio.get_running_loop()
+            #     # If we're already in an async context, we need to handle it differently
+            #     results = asyncio.run_coroutine_threadsafe(fetch_all_emails(), loop).result()
+            # except RuntimeError:
+            #     # No running loop, create one
+            #     results = asyncio.run(fetch_all_emails())
+
+            return await asyncio.gather(*email_messages)
 
         except Exception as e:
             raise
 
-    def get_email(self, message_id: str) -> EmailMessage:
+    async def get_email(self, message_id: str) -> EmailMessage:
         """
         Retrieves a specific message from Gmail using its unique identifier.
 
@@ -111,12 +132,26 @@ class GmailApiService:
             An EmailMessage object representing the message with the specified ID.
         """
 
+        # try:
+        #     gmail_message = self._service.users().messages().get(
+        #         userId='me',
+        #         id=message_id,
+        #         format='full'
+        #     ).execute()
+        #     return utils.from_gmail_message(gmail_message)
+        # except Exception as e:
+        #     raise
+
         try:
-            gmail_message = self._service.users().messages().get(
-                userId='me',
-                id=message_id,
-                format='full'
-            ).execute()
+            loop = asyncio.get_event_loop()
+            gmail_message = await loop.run_in_executor(
+                self._executor,  # ThreadPoolExecutor instance
+                lambda: build("gmail", "v1", credentials=self._credentials).users().messages().get(
+                    userId='me',
+                    id=message_id,
+                    format='full'
+                ).execute()
+            )
             return utils.from_gmail_message(gmail_message)
         except Exception as e:
             raise
@@ -172,7 +207,7 @@ class GmailApiService:
                 body={'raw': raw_message, 'threadId': thread_id}
             ).execute()
 
-            return self.get_email(send_result['id'])
+            return asyncio.run(self.get_email(send_result['id']))
 
         except Exception as e:
             raise
@@ -237,7 +272,7 @@ class GmailApiService:
                 body=draft_body
             ).execute()
 
-            return self.get_email(draft_result['message']['id'])
+            return asyncio.run(self.get_email(draft_result['message']['id']))
 
         except Exception as e:
             raise
@@ -723,6 +758,8 @@ class GmailApiService:
         try:
             result = self._service.users().threads().list(**request_params).execute()
             threads = result.get('threads', [])
+            print(threads)
+            print(type(threads))
 
             # Fetch full thread details
             email_threads = []
