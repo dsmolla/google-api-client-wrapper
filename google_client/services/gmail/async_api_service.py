@@ -1,46 +1,31 @@
 import asyncio
-from concurrent.futures import ThreadPoolExecutor
 import base64
-import os
+from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
 from typing import Optional, List, Dict, Any, Union
 
+import aiofiles
 from google.auth.credentials import Credentials
 from googleapiclient.discovery import build
-from googleapiclient.errors import HttpError
 
 from . import utils
 from .constants import DEFAULT_MAX_RESULTS, MAX_RESULTS_LIMIT
-from .exceptions import GmailError, GmailPermissionError, AttachmentNotFoundError
-from .query_builder import EmailQueryBuilder
 from .types import EmailMessage, EmailAttachment, Label, EmailThread
 
 
-class GmailApiService:
+class AsyncGmailApiService:
 
-    def __init__(self, credentials: Credentials):
+    def __init__(self, credentials: Credentials, timezone: str):
         self._executor = ThreadPoolExecutor()
         self._credentials = credentials
+        self._timezone = timezone
 
     def _service(self):
         return build("gmail", "v1", credentials=self._credentials)
 
-    def query(self) -> EmailQueryBuilder:
-        """
-        Create a new EmailQueryBuilder for building complex email queries with a fluent API.
-
-        Returns:
-            EmailQueryBuilder instance for method chaining
-
-        Example:
-            emails = (EmailMessage.query()
-                .limit(50)
-                .from_sender("sender@example.com")
-                .search("meeting")
-                .with_attachments()
-                .execute())
-        """
-        from .query_builder import EmailQueryBuilder
-        return EmailQueryBuilder(self)
+    def query(self):
+        from .async_query_builder import AsyncEmailQueryBuilder
+        return AsyncEmailQueryBuilder(self, self._timezone)
 
     async def list_emails(
             self,
@@ -94,6 +79,7 @@ class GmailApiService:
             references: Optional[str] = None,
             thread_id: Optional[str] = None
     ) -> EmailMessage:
+
         raw_message = utils.create_message(
             to=to,
             subject=subject,
@@ -115,8 +101,7 @@ class GmailApiService:
             ).execute()
         )
 
-        return asyncio.run(self.get_email(result['id']))
-
+        return await self.get_email(result['id'])
 
     async def create_draft(
             self,
@@ -170,7 +155,7 @@ class GmailApiService:
             task = asyncio.create_task(self.get_email(message_id))
             tasks.append(task)
 
-        emails = await asyncio.gather(*tasks, return_exceptions=False)
+        emails = await asyncio.gather(*tasks, return_exceptions=True)
         return emails
 
     async def batch_send_emails(self, email_data_list: List[Dict[str, Any]]) -> List["EmailMessage"]:
@@ -389,37 +374,44 @@ class GmailApiService:
 
         return data
 
-    async def download_attachment(self, attachment: Union[EmailAttachment, dict],
-                            download_folder: str = 'attachments') -> str:
-        if not os.path.exists(download_folder):
-            os.makedirs(download_folder)
+    async def download_attachment(
+            self,
+            attachment: Union[EmailAttachment, dict],
+            download_folder: str = str(Path.home() / "Downloads" / "GmailAttachments")
+    ) -> str:
+        download_folder = Path(download_folder)
+        download_folder.mkdir(parents=True, exist_ok=True)
 
         if isinstance(attachment, EmailAttachment):
             filename = attachment.filename
         else:
             if not all(k in attachment for k in ('filename', 'attachment_id', 'message_id')):
                 raise ValueError(
-                    "Attachment dictionary must contain 'filename', 'attachment_id', and 'message_id' keys.")
+                    "Attachment dictionary must contain 'filename', 'attachment_id', and 'message_id' keys."
+                )
             filename = attachment['filename']
 
-        try:
-            file_path = os.path.join(download_folder, filename)
-            with open(file_path, 'wb') as f:
-                f.write(await self.get_attachment_payload(attachment))
+        file_path = str(download_folder.joinpath(filename))
+        async with aiofiles.open(file_path, 'wb') as f:
+            await f.write(await self.get_attachment_payload(attachment))
 
-            return file_path
+        return file_path
 
-        except HttpError as e:
-            if e.resp.status == 403:
-                raise GmailPermissionError(f"Permission denied accessing attachment: {e}")
-            elif e.resp.status == 404:
-                raise AttachmentNotFoundError(f"Attachment not found: {e}")
-            else:
-                raise GmailError(f"Gmail API error downloading attachment: {e}")
-        except (ValueError, KeyError) as e:
-            raise GmailError(f"Invalid attachment data: {e}")
-        except Exception as e:
-            raise
+    async def download_all_attachments(
+            self,
+            email: Union[EmailMessage, str],
+            download_folder: str = str(Path.home() / "Downloads" / "GmailAttachments")
+    ) -> List[str | Exception]:
+        if isinstance(email, str):
+            email = await self.get_email(email)
+
+        tasks = []
+        for attachment in email.attachments:
+            task = asyncio.create_task(self.download_attachment(attachment, download_folder))
+            tasks.append(task)
+
+        downloaded_paths = await asyncio.gather(*tasks, return_exceptions=True)
+        return downloaded_paths
 
     async def create_label(self, name: str) -> "Label":
         loop = asyncio.get_event_loop()
@@ -486,7 +478,7 @@ class GmailApiService:
             )
             label.name = updated_label.get('name')
             return updated_label
-        except Exception as e:
+        except Exception:
             raise
 
     async def list_threads(
@@ -561,8 +553,12 @@ class GmailApiService:
         except Exception:
             return False
 
-    async def modify_thread_labels(self, thread: Union[EmailThread, str], add_labels: Optional[List[str]] = None,
-                             remove_labels: Optional[List[str]] = None) -> bool:
+    async def modify_thread_labels(
+            self,
+            thread: Union[EmailThread, str],
+            add_labels: Optional[List[str]] = None,
+            remove_labels: Optional[List[str]] = None
+    ) -> bool:
 
         try:
             if not add_labels and not remove_labels:
@@ -602,5 +598,5 @@ class GmailApiService:
                 lambda: self._service().users().threads().untrash(userId='me', id=thread).execute()
             )
             return True
-        except Exception as e:
+        except Exception:
             return False

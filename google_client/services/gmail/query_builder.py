@@ -1,15 +1,10 @@
 from datetime import datetime, date, timedelta
-from typing import Optional, List, TYPE_CHECKING
+from typing import Optional, List
 
-from ...utils.datetime import convert_datetime_to_local_timezone
+import pytz
 
-if TYPE_CHECKING:
-    from .api_service import EmailMessage
-    from .types import EmailThread
-
-# Constants (imported from gmail_client)
-MAX_RESULTS_LIMIT = 2500
-DEFAULT_MAX_RESULTS = 30
+from . import GmailApiService, AsyncGmailApiService
+from .constants import MAX_RESULTS_LIMIT, DEFAULT_MAX_RESULTS
 
 
 class EmailQueryBuilder:
@@ -26,12 +21,13 @@ class EmailQueryBuilder:
             .execute())
     """
 
-    def __init__(self, api_service_class):
+    def __init__(self, api_service_class: GmailApiService | AsyncGmailApiService, timezone: str):
         self._api_service = api_service_class
         self._max_results: Optional[int] = DEFAULT_MAX_RESULTS
         self._query_parts: List[str] = []
         self._include_spam_trash: bool = False
         self._label_ids: List[str] = []
+        self._timezone = timezone
 
     def limit(self, count: int) -> "EmailQueryBuilder":
         """
@@ -163,28 +159,28 @@ class EmailQueryBuilder:
             self._query_parts.append(f"in:{folder}")
         return self
 
-    def with_label(self, label: str) -> "EmailQueryBuilder":
+    def with_label(self, labels: list[str]) -> "EmailQueryBuilder":
         """
         Filter emails with a specific label.
         Args:
-            label: Label name
+            labels: A list of label names
         Returns:
             Self for method chaining
         """
-        if label:
-            self._query_parts.append(f"label:{label}")
+        if labels:
+            self._query_parts.extend([f"label:{label}" for label in labels])
         return self
 
-    def without_label(self, label: str) -> "EmailQueryBuilder":
+    def without_label(self, labels: list[str]) -> "EmailQueryBuilder":
         """
         Filter emails without a specific label.
         Args:
-            label: Label name
+            labels: A list of label names
         Returns:
             Self for method chaining
         """
-        if label:
-            self._query_parts.append(f"-label:{label}")
+        if labels:
+            self._query_parts.extend([f"-label:{label}" for label in labels])
         return self
 
     def in_date_range(self, start_date: date, end_date: date) -> "EmailQueryBuilder":
@@ -200,43 +196,43 @@ class EmailQueryBuilder:
             raise ValueError("Start date must be before end date")
 
         start_date = datetime.combine(start_date, datetime.min.time())
-        start_date = convert_datetime_to_local_timezone(start_date)
+        start_date = pytz.timezone(self._timezone).localize(start_date)
         start_date_timestamp = int(start_date.timestamp())
 
         end_date = datetime.combine(end_date, datetime.min.time())
-        end_date = convert_datetime_to_local_timezone(end_date)
+        end_date = pytz.timezone(self._timezone).localize(end_date)
         end_date_timestamp = int(end_date.timestamp())
 
         self._query_parts.append(f"after:{start_date_timestamp}")
         self._query_parts.append(f"before:{end_date_timestamp}")
         return self
 
-    def after_date(self, date_obj: date) -> "EmailQueryBuilder":
+    def after_date(self, date_: date) -> "EmailQueryBuilder":
         """
         Filter emails after a specific date.
         Args:
-            date_obj: Date to filter after
+            date_: Date to filter after
         Returns:
             Self for method chaining
         """
-        date_obj = datetime.combine(date_obj, datetime.min.time())
-        date_obj = convert_datetime_to_local_timezone(date_obj)
-        date_obj_timestamp = int(date_obj.timestamp())
+        date_ = datetime.combine(date_, datetime.min.time())
+        date_ = pytz.timezone(self._timezone).localize(date_)
+        date_timestamp = int(date_.timestamp())
 
-        self._query_parts.append(f"after:{date_obj_timestamp}")
+        self._query_parts.append(f"after:{date_timestamp}")
         return self
 
-    def before_date(self, date_obj: date) -> "EmailQueryBuilder":
+    def before_date(self, date_: date) -> "EmailQueryBuilder":
         """
         Filter emails before a specific date.
         Args:
-            date_obj: Date to filter before
+            date_: Date to filter before
         Returns:
             Self for method chaining
         """
-        date_obj = datetime.combine(date_obj, datetime.min.time())
-        date_obj = convert_datetime_to_local_timezone(date_obj)
-        date_timestamp = int(date_obj.timestamp())
+        date_ = datetime.combine(date_, datetime.min.time())
+        date_ = pytz.timezone(self._timezone).localize(date_)
+        date_timestamp = int(date_.timestamp())
         self._query_parts.append(f"before:{date_timestamp}")
         return self
 
@@ -247,7 +243,7 @@ class EmailQueryBuilder:
             Self for method chaining
         """
         today = datetime.combine(datetime.today(), datetime.min.time())
-        today = convert_datetime_to_local_timezone(today)
+        today = pytz.timezone(self._timezone).localize(today)
         today_timestamp = int(today.timestamp())
 
         self._query_parts.append(f"after:{today_timestamp}")
@@ -260,19 +256,9 @@ class EmailQueryBuilder:
             Self for method chaining
         """
         yesterday = datetime.now().date() - timedelta(days=1)
-        yesterday = datetime.combine(yesterday, datetime.min.time())
-        yesterday = convert_datetime_to_local_timezone(yesterday)
-        yesterday_timestamp = int(yesterday.timestamp())
-
         today = datetime.now().date()
-        today = datetime.combine(today, datetime.min.time())
-        today = convert_datetime_to_local_timezone(today)
-        today_timestamp = int(today.timestamp())
 
-        self._query_parts.append(f"after:{yesterday_timestamp}")
-        self._query_parts.append(f"before:{today_timestamp}")
-
-        return self
+        return self.in_date_range(yesterday, today)
 
     def last_days(self, days: int) -> "EmailQueryBuilder":
         """
@@ -287,7 +273,7 @@ class EmailQueryBuilder:
 
         start_date = datetime.now() - timedelta(days=days)
         start_date = datetime.combine(start_date, datetime.min.time())
-        start_date = convert_datetime_to_local_timezone(start_date)
+        start_date = pytz.timezone(self._timezone).localize(start_date)
         start_date_timestamp = int(start_date.timestamp())
 
         self._query_parts.append(f"after:{start_date_timestamp}")
@@ -319,7 +305,7 @@ class EmailQueryBuilder:
         Returns:
             Self for method chaining
         """
-        if size_mb < 1:
+        if size_mb < 0:
             raise ValueError("Size must be positive")
         self._query_parts.append(f"larger:{size_mb}M")
         return self
@@ -332,7 +318,7 @@ class EmailQueryBuilder:
         Returns:
             Self for method chaining
         """
-        if size_mb < 1:
+        if size_mb < 0:
             raise ValueError("Size must be positive")
         self._query_parts.append(f"smaller:{size_mb}M")
         return self
@@ -359,15 +345,14 @@ class EmailQueryBuilder:
         self._label_ids.extend(label_ids)
         return self
 
-    def execute(self) -> List["EmailMessage"]:
+    def execute(self) -> List[str]:
         """
         Execute the query and return the results.
         Returns:
-            List of EmailMessage objects matching the query
+            List of message_ids matching the query
         """
-        query_string = " ".join(self._query_parts) if self._query_parts else None
 
-        # Use the service layer implementation instead of dataclass methods
+        query_string = " ".join(self._query_parts) if self._query_parts else None
         emails = self._api_service.list_emails(
             max_results=self._max_results,
             query=query_string,
@@ -377,11 +362,11 @@ class EmailQueryBuilder:
 
         return emails
 
-    def first(self) -> Optional["EmailMessage"]:
+    def first(self) -> Optional[str]:
         """
         Get the first email matching the query.
         Returns:
-            First EmailMessage object or None if no matches
+            First message_id or None if no matches
         """
 
         results = self.limit(1).execute()
@@ -396,15 +381,14 @@ class EmailQueryBuilder:
         """
         return self.first() is not None
 
-    def get_threads(self) -> List["EmailThread"]:
+    def get_threads(self) -> List[str]:
         """
         Execute the query and return threads instead of individual messages.
         Returns:
-            List of EmailThread objects matching the query
+            List of thread_ids matching the query
         """
-        query_string = " ".join(self._query_parts) if self._query_parts else None
 
-        # Use the service layer implementation to get threads
+        query_string = " ".join(self._query_parts) if self._query_parts else None
         threads = self._api_service.list_threads(
             max_results=self._max_results,
             query=query_string,
