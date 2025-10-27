@@ -3,7 +3,7 @@ from datetime import datetime
 from pydantic import BaseModel, Field
 from html2text import html2text
 
-from google_client.utils.datetime import convert_datetime_to_readable
+from google_client.utils.datetime import datetime_to_readable
 
 
 class EmailAddress(BaseModel):
@@ -244,7 +244,7 @@ class EmailMessage(BaseModel):
             "thread_id": self.thread_id,
             "sender": self.sender.email,
             "recipients": [recipient.email for recipient in self.recipients],
-            "date_time": convert_datetime_to_readable(self.date_time),
+            "date_time": datetime_to_readable(self.date_time),
             "subject": self.subject,
             "labels": self.labels,
             "snippet": self.snippet.encode("ascii", "ignore").decode("ascii"),
@@ -257,7 +257,17 @@ class EmailMessage(BaseModel):
             f"Subject: {self.subject!r}\n"
             f"From: {self.sender}\n"
             f"To: {', '.join(str(r) for r in self.recipients)}\n"
-            f"Date: {convert_datetime_to_readable(self.date_time) if self.date_time else 'Unknown'}\n"
+            f"Date: {datetime_to_readable(self.date_time) if self.date_time else 'Unknown'}\n"
+            f"Snippet: {self.snippet}\n"
+            f"Labels: {', '.join(self.labels)}\n"
+        )
+
+    def __str__(self):
+        return (
+            f"Subject: {self.subject!r}\n"
+            f"From: {self.sender}\n"
+            f"To: {', '.join(str(r) for r in self.recipients)}\n"
+            f"Date: {datetime_to_readable(self.date_time) if self.date_time else 'Unknown'}\n"
             f"Snippet: {self.snippet}\n"
             f"Labels: {', '.join(self.labels)}\n"
         )

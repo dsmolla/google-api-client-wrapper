@@ -5,6 +5,7 @@ import pytz
 
 from . import GmailApiService, AsyncGmailApiService
 from .constants import MAX_RESULTS_LIMIT, DEFAULT_MAX_RESULTS
+from ...utils.datetime import current_datetime
 
 
 class EmailQueryBuilder:
@@ -242,8 +243,8 @@ class EmailQueryBuilder:
         Returns:
             Self for method chaining
         """
-        today = datetime.combine(datetime.today(), datetime.min.time())
-        today = pytz.timezone(self._timezone).localize(today)
+        today = current_datetime(self._timezone).date()
+        today = datetime.combine(today, datetime.min.time())
         today_timestamp = int(today.timestamp())
 
         self._query_parts.append(f"after:{today_timestamp}")
@@ -255,8 +256,8 @@ class EmailQueryBuilder:
         Returns:
             Self for method chaining
         """
-        yesterday = datetime.now().date() - timedelta(days=1)
-        today = datetime.now().date()
+        today = current_datetime(self._timezone).date()
+        yesterday = today - timedelta(days=1)
 
         return self.in_date_range(yesterday, today)
 
@@ -271,9 +272,8 @@ class EmailQueryBuilder:
         if days < 0:
             raise ValueError("Days must be positive")
 
-        start_date = datetime.now() - timedelta(days=days)
+        start_date = current_datetime(self._timezone).date() - timedelta(days=days)
         start_date = datetime.combine(start_date, datetime.min.time())
-        start_date = pytz.timezone(self._timezone).localize(start_date)
         start_date_timestamp = int(start_date.timestamp())
 
         self._query_parts.append(f"after:{start_date_timestamp}")
@@ -285,7 +285,7 @@ class EmailQueryBuilder:
         Returns:
             Self for method chaining
         """
-        days_since_monday = date.weekday(date.today())  # Monday is 0
+        days_since_monday = current_datetime(self._timezone).weekday()  # Monday is 0
         return self.last_days(days_since_monday)
 
     def this_month(self) -> "EmailQueryBuilder":
@@ -294,7 +294,7 @@ class EmailQueryBuilder:
         Returns:
             Self for method chaining
         """
-        days_since_month_started = date.today().day - 1  # Days in current month
+        days_since_month_started = current_datetime(self._timezone).day - 1 # Days in current month
         return self.last_days(days_since_month_started)
 
     def larger_than(self, size_mb: int) -> "EmailQueryBuilder":

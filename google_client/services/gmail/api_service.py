@@ -6,7 +6,7 @@ from google.auth.credentials import Credentials
 from googleapiclient.discovery import build
 
 from . import utils
-from .constants import DEFAULT_MAX_RESULTS, MAX_RESULTS_LIMIT
+from .constants import DEFAULT_MAX_RESULTS
 from .types import EmailMessage, EmailAttachment, Label, EmailThread
 
 
@@ -58,8 +58,8 @@ class GmailApiService:
             A list of message_ids.
             If no messages are found, an empty list is returned.
         """
-        if max_results < 1 or max_results > MAX_RESULTS_LIMIT:
-            raise ValueError(f"max_results must be between 1 and {MAX_RESULTS_LIMIT}")
+        if max_results < 1:
+            raise ValueError(f"max_results must be at least 1")
 
         request_params = {
             'userId': 'me',
@@ -74,6 +74,15 @@ class GmailApiService:
 
         result = self._service.users().messages().list(**request_params).execute()
         message_ids = [message['id'] for message in result.get('messages', [])]
+
+        while result.get('nextPageToken') and len(message_ids) < max_results:
+            request_params['maxResults'] = max_results - len(message_ids)
+            result = self._service.users().messages().list(
+                **request_params,
+                pageToken=result['nextPageToken']
+            ).execute()
+            message_ids.extend([message['id'] for message in result.get('messages', [])])
+
         return message_ids
 
     def get_email(self, message_id: str) -> EmailMessage:
@@ -88,7 +97,7 @@ class GmailApiService:
         """
 
         gmail_message = self._service.users().messages().get(userId='me', id=message_id, format='full').execute()
-        return utils.from_gmail_message(gmail_message)
+        return utils.from_gmail_message(gmail_message, timezone=self._timezone)
 
     def send_email(
             self,
@@ -507,7 +516,7 @@ class GmailApiService:
         Downloads an email attachment to the specified folder.
         Args:
             attachment: The EmailAttachment object or dictionary containing attachment details. If a dictionary is provided, it must contain 'filename', 'attachment_id', and 'message_id' keys.
-            download_folder: The folder path where the attachment will be saved. Defaults to '~\Downloads\GmailAttachments'
+            download_folder: The folder path where the attachment will be saved. Defaults to '~\\Downloads\\GmailAttachments'
         Returns:
             The file path of the downloaded attachment
         """
@@ -650,8 +659,8 @@ class GmailApiService:
             A list of thread_ids for the threads found.
         """
 
-        if max_results < 1 or max_results > MAX_RESULTS_LIMIT:
-            raise ValueError(f"max_results must be between 1 and {MAX_RESULTS_LIMIT}")
+        if max_results < 1:
+            raise ValueError(f"max_results must be at least 1")
 
         request_params = {
             'userId': 'me',
@@ -665,8 +674,14 @@ class GmailApiService:
             request_params['labelIds'] = label_ids
 
         result = self._service.users().threads().list(**request_params).execute()
-        threads = [thread['id'] for thread in result.get('threads', [])]
-        return threads
+        thread_ids = [thread['id'] for thread in result.get('threads', [])]
+
+        while result.get('nextPageToken') and len(thread_ids) < max_results:
+            request_params['maxResults'] = max_results - len(thread_ids)
+            result = self._service.users().threads().list(**request_params, pageToken=result['nextPageToken']).execute()
+            thread_ids.extend([thread['id'] for thread in result.get('messages', [])])
+
+        return thread_ids
 
     def get_thread(self, thread_id: str) -> EmailThread:
         """
@@ -684,7 +699,27 @@ class GmailApiService:
             id=thread_id,
             format='full'
         ).execute()
-        return utils.from_gmail_thread(gmail_thread)
+        return utils.from_gmail_thread(gmail_thread, self._timezone)
+
+    def batch_get_threads(self, thread_ids: List[str]) -> List[EmailThread | Exception]:
+        """
+        Retrieves multiple emails.
+
+        Args:
+            thread_ids: List of thread IDs to retrieve
+
+        Returns:
+            List of EmailThread objects or Exceptions if exceptions raised
+        """
+
+        threads = []
+        for thread_id in thread_ids:
+            try:
+                threads.append(self.get_thread(thread_id))
+            except Exception as e:
+                threads.append(e)
+
+        return threads
 
     def delete_thread(self, thread: Union[EmailThread, str], permanent: bool = False) -> bool:
         """

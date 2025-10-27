@@ -9,7 +9,7 @@ from google.auth.credentials import Credentials
 from googleapiclient.discovery import build
 
 from . import utils
-from .constants import DEFAULT_MAX_RESULTS, MAX_RESULTS_LIMIT
+from .constants import DEFAULT_MAX_RESULTS
 from .types import EmailMessage, EmailAttachment, Label, EmailThread
 
 
@@ -35,8 +35,8 @@ class AsyncGmailApiService:
             label_ids: Optional[List[str]] = None
     ) -> List[str]:
 
-        if max_results < 1 or max_results > MAX_RESULTS_LIMIT:
-            raise ValueError(f"max_results must be between 1 and {MAX_RESULTS_LIMIT}")
+        if max_results < 1:
+            raise ValueError(f"max_results must be at least 1")
 
         request_params = {
             'userId': 'me',
@@ -55,6 +55,19 @@ class AsyncGmailApiService:
         )
 
         message_ids = [message['id'] for message in result.get('messages', [])]
+
+        while result.get('nextPageToken') and len(message_ids) < max_results:
+            request_params['maxResults'] = max_results - len(message_ids)
+            result = await loop.run_in_executor(
+                self._executor,
+                lambda: self._service().users().messages().list(
+                    **request_params,
+                    pageToken=result['nextPageToken']
+                ).execute()
+            )
+
+            message_ids.extend([message['id'] for message in result.get('messages', [])])
+
         return message_ids
 
     async def get_email(self, message_id: str) -> EmailMessage:
@@ -64,7 +77,7 @@ class AsyncGmailApiService:
             lambda: self._service().users().messages().get(userId='me', id=message_id, format='full').execute()
         )
 
-        return utils.from_gmail_message(gmail_message)
+        return utils.from_gmail_message(gmail_message, timezone=self._timezone)
 
     async def send_email(
             self,
@@ -489,8 +502,8 @@ class AsyncGmailApiService:
             label_ids: Optional[List[str]] = None
     ) -> List[str]:
 
-        if max_results and (max_results < 1 or max_results > MAX_RESULTS_LIMIT):
-            raise ValueError(f"max_results must be between 1 and {MAX_RESULTS_LIMIT}")
+        if max_results < 1:
+            raise ValueError(f"max_results must be at least 1")
 
         request_params = {
             'userId': 'me',
@@ -509,6 +522,18 @@ class AsyncGmailApiService:
             lambda: self._service().users().threads().list(**request_params).execute()
         )
         thread_ids = [thread['id'] for thread in result.get('threads', [])]
+        while result.get('nextPageToken') and len(thread_ids) < max_results:
+            request_params['maxResults'] = max_results - len(thread_ids)
+            loop = asyncio.get_event_loop()
+            result = await loop.run_in_executor(
+                self._executor,
+                lambda: self._service().users().threads().list(
+                    **request_params,
+                    pageToken=result['nextPageToken']
+                ).execute()
+            )
+            thread_ids.extend([thread['id'] for thread in result.get('messages', [])])
+
         return thread_ids
 
     async def get_thread(self, thread_id: str) -> EmailThread:
@@ -521,7 +546,7 @@ class AsyncGmailApiService:
                 format='full'
             ).execute()
         )
-        return utils.from_gmail_thread(thread)
+        return utils.from_gmail_thread(thread, self._timezone)
 
     async def batch_get_thread(self, thread_ids: List[str]) -> List[EmailThread]:
         tasks = []

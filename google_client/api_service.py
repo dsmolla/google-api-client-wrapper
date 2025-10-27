@@ -13,8 +13,6 @@ from .services.calendar import AsyncCalendarApiService
 from .services.drive import AsyncDriveApiService
 from .services.tasks import AsyncTasksApiService
 
-import pytz
-
 
 class APIServiceLayer:
     """

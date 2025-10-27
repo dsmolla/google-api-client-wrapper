@@ -1,18 +1,19 @@
-import os
-from email.mime.text import MIMEText
-from email.mime.multipart import MIMEMultipart
-from email.mime.base import MIMEBase
-from email import encoders
-from email.utils import getaddresses, parsedate_to_datetime
-import mimetypes
-import html
-from typing import Optional, List
 import base64
-from .types import EmailMessage, EmailAttachment, EmailAddress, EmailThread
-from ...utils.datetime import convert_datetime_to_local_timezone, convert_datetime_to_readable
+import html
+import mimetypes
+import os
+from email import encoders
+from email.mime.base import MIMEBase
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
+from email.utils import getaddresses, parsedate_to_datetime
+from typing import Optional, List
+
+import pytz
+
 from .constants import MAX_SUBJECT_LENGTH, MAX_BODY_LENGTH
-
-
+from .types import EmailMessage, EmailAttachment, EmailAddress, EmailThread
+from ...utils.datetime import datetime_to_readable
 # Import from shared utilities
 from ...utils.validation import is_valid_email, sanitize_header_value
 
@@ -88,11 +89,12 @@ def extract_attachments(message_id: str, payload: dict) -> List[EmailAttachment]
     return attachments
 
 
-def from_gmail_message(gmail_message: dict) -> "EmailMessage":
+def from_gmail_message(gmail_message: dict, timezone: str) -> "EmailMessage":
     """
     Creates an EmailMessage instance from a Gmail API response.
     Args:
         gmail_message: A dictionary containing message data from Gmail API.
+        timezone: timezone
 
     Returns:
         An EmailMessage instance populated with the data from the dictionary.
@@ -134,15 +136,8 @@ def from_gmail_message(gmail_message: dict) -> "EmailMessage":
     message_id = gmail_message.get('id')
     attachments = extract_attachments(message_id, payload)
 
-    # Parse date
-    date_received = None
-    if headers.get('date'):
-        try:
-            # Parse RFC 2822 date format
-            date_received = parsedate_to_datetime(headers['date'])
-            date_received = convert_datetime_to_local_timezone(date_received)
-        except:
-            pass
+    date_received = parsedate_to_datetime(headers['date'])
+    date_received = date_received.astimezone(pytz.timezone(timezone))
 
     # Extract labels
     labels = gmail_message.get('labelIds', [])
@@ -245,10 +240,10 @@ def create_message(
         # Create mixed container for content + attachments
         content_message = message  # Save the content part
         message = MIMEMultipart('mixed')
-        
+
         # Attach the content (text/HTML/alternative) as first part
         message.attach(content_message)
-        
+
         # Set headers on the mixed container
         message['to'] = ', '.join(to)
         message['subject'] = subject
@@ -278,37 +273,34 @@ def create_message(
                             f'attachment; filename="{safe_filename}"'
                         )
                         message.attach(attachment)
-        
+
         # Add in-memory attachments
         if attachment_data_list:
             for filename, mime_type, data_bytes in attachment_data_list:
-                
                 main_type, sub_type = mime_type.split('/', 1) if '/' in mime_type else ('application', 'octet-stream')
                 attachment = MIMEBase(main_type, sub_type)
-                
+
                 # data_bytes from get_attachment_payload is already raw binary data
                 # so we need to encode it to base64
                 attachment.set_payload(data_bytes)
                 encoders.encode_base64(attachment)
-                
+
                 # Sanitize filename to prevent header injection
                 safe_filename = sanitize_header_value(filename)
                 attachment.add_header(
                     'Content-Disposition',
                     f'attachment; filename="{safe_filename}"'
                 )
-                
+
                 # Add Content-Type header explicitly
                 attachment.add_header('Content-Type', mime_type)
-                
+
                 message.attach(attachment)
-                
 
     # Add reply headers if this is a reply
     if reply_to_message_id:
         message['In-Reply-To'] = reply_to_message_id
         message['References'] = references or reply_to_message_id
-
 
     # Encode message
     raw_message = base64.urlsafe_b64encode(message.as_bytes()).decode()
@@ -316,28 +308,28 @@ def create_message(
     return raw_message
 
 
-def from_gmail_thread(gmail_thread: dict) -> EmailThread:
+def from_gmail_thread(gmail_thread: dict, timezone: str) -> EmailThread:
     """
     Creates an EmailThread instance from a Gmail API thread response.
     Args:
         gmail_thread: A dictionary containing thread data from Gmail API.
-
+        timezone: Timezone
     Returns:
         An EmailThread instance populated with the data from the dictionary.
     """
     thread_id = gmail_thread.get('id')
     snippet = html.unescape(gmail_thread.get('snippet', '')).strip()
     history_id = gmail_thread.get('historyId')
-    
+
     # Convert messages to EmailMessage objects
     messages = []
     for gmail_message in gmail_thread.get('messages', []):
         try:
-            email_message = from_gmail_message(gmail_message)
+            email_message = from_gmail_message(gmail_message, timezone=timezone)
             messages.append(email_message)
         except Exception:
             pass
-    
+
     return EmailThread(
         thread_id=thread_id,
         messages=messages,
@@ -357,15 +349,15 @@ def build_references_header(email: EmailMessage) -> Optional[str]:
         A properly formatted References header string or None
     """
     references_parts = []
-    
+
     # Add existing references (already contains the proper thread chain)
     if email.references:
         references_parts.append(email.references.strip())
-    
+
     # Add the original message's Message-ID to continue the chain
     if email.reply_to_id:
         references_parts.append(email.reply_to_id.strip())
-    
+
     return " ".join(references_parts) if references_parts else None
 
 
@@ -375,7 +367,7 @@ def prepare_forward_body_text(email: EmailMessage) -> str:
             email.body_text,
             "\n\n---------- Forwarded message ---------",
             f"From: {email.sender}",
-            f"Date: {convert_datetime_to_readable(email.date_time)}",
+            f"Date: {datetime_to_readable(email.date_time)}",
             f"Subject: {email.subject}",
             f"To: {", ".join([str(recipient) for recipient in email.recipients])}",
             ""
@@ -384,7 +376,7 @@ def prepare_forward_body_text(email: EmailMessage) -> str:
         forwarded_body_text = "\n".join([
             "\n\n---------- Forwarded message ---------",
             f"From: {email.sender}",
-            f"Date: {convert_datetime_to_readable(email.date_time)}",
+            f"Date: {datetime_to_readable(email.date_time)}",
             f"Subject: {email.subject}",
             f"To: {", ".join([str(recipient) for recipient in email.recipients])}",
             ""
@@ -399,18 +391,18 @@ def prepare_forward_body_html(email: EmailMessage) -> Optional[str]:
     """
     if not email.body_html:
         return None
-        
+
     forward_content = ["---------- Forwarded message ---------<br>", f"<b>From:</b> {email.sender}<br>",
-                       f"<b>Date:</b> {convert_datetime_to_readable(email.date_time)}<br>",
+                       f"<b>Date:</b> {datetime_to_readable(email.date_time)}<br>",
                        f"<b>Subject:</b> {email.subject}<br>"
                        ]
 
     if email.recipients:
         to_list = ", ".join([str(recipient) for recipient in email.recipients])
         forward_content.append(f"<b>To:</b> {to_list}<br>")
-    
+
     forward_content.append("<br>")  # Empty line before original content
-    
+
     # Add original message content
     if email.body_html:
         forward_content.append(email.body_html)
@@ -418,6 +410,5 @@ def prepare_forward_body_html(email: EmailMessage) -> Optional[str]:
         # Convert plain text to HTML
         html_text = email.body_text.replace('\n', '<br>')
         forward_content.append(html_text)
-    
-    return "".join(forward_content)
 
+    return "".join(forward_content)
