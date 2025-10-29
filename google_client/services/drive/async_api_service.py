@@ -1,4 +1,6 @@
+import asyncio
 import io
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Optional, List, Dict, Any, Union, BinaryIO
 
@@ -7,64 +9,42 @@ from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload, MediaIoBaseUpload, MediaIoBaseDownload
 
 from . import utils
-from .constants import DEFAULT_MAX_RESULTS, DEFAULT_FILE_FIELDS, FOLDER_MIME_TYPE, DEFAULT_CHUNK_SIZE
-from .exceptions import FileNotFoundError, FolderNotFoundError, PermissionDeniedError
-from .query_builder import DriveQueryBuilder
+from .constants import (
+    DEFAULT_MAX_RESULTS, DEFAULT_FILE_FIELDS,
+    FOLDER_MIME_TYPE, DEFAULT_CHUNK_SIZE
+)
+from .exceptions import (
+    FileNotFoundError, FolderNotFoundError, PermissionDeniedError
+)
 from .types import DriveFile, DriveFolder, Permission, DriveItem
+from .utils import convert_mime_type_to_downloadable
 from ...utils.datetime import datetime_to_readable
 
 
-class DriveApiService:
+class AsyncDriveApiService:
     """
-    Service layer for Drive API operations.
+    Async service layer for Drive API operations.
     Contains all Drive API functionality following the user-centric approach.
     """
 
     def __init__(self, credentials: Credentials, timezone: str = "UTC"):
-        """
-        Initialize Drive service.
-
-        Args:
-            credentials: Google API credentials
-            timezone: User's timezone for date/time operations (e.g., 'America/New_York')
-        """
-        self._service = build("drive", "v3", credentials=credentials)
+        self._executor = ThreadPoolExecutor()
+        self._credentials = credentials
         self._timezone = timezone
 
-    def query(self) -> DriveQueryBuilder:
-        """
-        Create a new DriveQueryBuilder for building complex file queries with a fluent API.
+    def _service(self):
+        return build("drive", "v3", credentials=self._credentials)
 
-        Returns:
-            DriveQueryBuilder instance for method chaining
+    def query(self):
+        from .async_query_builder import AsyncDriveQueryBuilder
+        return AsyncDriveQueryBuilder(self, self._timezone)
 
-        Example:
-            files = (user.drive.query()
-                .limit(50)
-                .in_folder("parent_folder_id")
-                .search("meeting")
-                .file_type("pdf")
-                .execute())
-        """
-        return DriveQueryBuilder(self, self._timezone)
-
-    def list(
+    async def list(
             self,
             query: Optional[str] = None,
             max_results: Optional[int] = DEFAULT_MAX_RESULTS,
-            order_by: Optional[str] = None,
+            order_by: Optional[str] = None
     ) -> List[DriveItem]:
-        """
-        List files and folders in Drive.
-
-        Args:
-            query: Drive API query string
-            max_results: Maximum number of items to return
-            order_by: Field to order results by
-
-        Returns:
-            List of DriveFile and DriveFolder objects
-        """
         if max_results < 1:
             raise ValueError(f"max_results must be at least 1")
 
@@ -75,37 +55,38 @@ class DriveApiService:
         if order_by:
             request_params['orderBy'] = order_by
 
-        result = self._service.files().list(**request_params).execute()
-        items = [utils.convert_api_file_to_correct_type(file_data) for file_data in result.get('files', [])]
+        loop = asyncio.get_event_loop()
+        result = await loop.run_in_executor(
+            self._executor,
+            lambda: self._service().files().list(**request_params).execute()
+        )
 
+        items = [utils.convert_api_file_to_correct_type(file_data) for file_data in result.get('files', [])]
         while result.get('nextPageToken') and len(items) < max_results:
             request_params['pageSize'] = max_results - len(items)
-            result = self._service.files().list(**request_params, pageToken=result['nextPageToken']).execute()
+            result = await loop.run_in_executor(
+                self._executor,
+                lambda: self._service().files().list(**request_params).execute()
+            )
             items.extend([utils.convert_api_file_to_correct_type(file_data) for file_data in result.get('files', [])])
 
         return items
 
-    def get(self, item_id: str, fields: Optional[str] = None) -> DriveItem:
-        """
-        Get a file or folder by its id.
-
-        Args:
-            item_id: File id or folder id
-            fields: Fields to include in response
-
-        Returns:
-            DriveFile or DriveFolder object
-        """
+    async def get(self, item_id: str, fields: Optional[str] = None) -> DriveItem:
         request_params = {
             'fileId': item_id,
             'fields': fields or DEFAULT_FILE_FIELDS
         }
 
-        result = self._service.files().get(**request_params).execute()
+        loop = asyncio.get_event_loop()
+        result = await loop.run_in_executor(
+            self._executor,
+            lambda: self._service().files().get(**request_params).execute()
+        )
         file_obj = utils.convert_api_file_to_correct_type(result)
         return file_obj
 
-    def upload_file(
+    async def upload_file(
             self,
             file_path: str,
             name: Optional[str] = None,
@@ -113,19 +94,6 @@ class DriveApiService:
             description: Optional[str] = None,
             mime_type: Optional[str] = None
     ) -> DriveFile:
-        """
-        Upload a file to Drive.
-
-        Args:
-            file_path: Local path to the file to upload
-            name: Name for the file in Drive (defaults to filename)
-            parent_folder_id: ID of parent folder
-            description: File description
-            mime_type: MIME type (auto-detected if not provided)
-
-        Returns:
-            DriveFile object for the uploaded file
-        """
         file_path = Path(file_path)
         if not file_path.is_file():
             raise FileNotFoundError(f"Local file not found: {str(file_path)}")
@@ -146,16 +114,20 @@ class DriveApiService:
             chunksize=DEFAULT_CHUNK_SIZE
         )
 
-        result = self._service.files().create(
-            body=metadata,
-            media_body=media,
-            fields=DEFAULT_FILE_FIELDS
-        ).execute()
+        loop = asyncio.get_event_loop()
+        result = await loop.run_in_executor(
+            self._executor,
+            lambda: self._service().files().create(
+                body=metadata,
+                media_body=media,
+                fields=DEFAULT_FILE_FIELDS
+            ).execute()
+        )
 
         file_obj = utils.convert_api_file_to_drive_file(result)
         return file_obj
 
-    def upload_file_content(
+    async def upload_file_content(
             self,
             content: Union[str, bytes, BinaryIO],
             name: str,
@@ -163,19 +135,6 @@ class DriveApiService:
             description: Optional[str] = None,
             mime_type: str = "text/plain"
     ) -> DriveFile:
-        """
-        Upload file content directly to Drive.
-
-        Args:
-            content: File content (string, bytes, or file-like object)
-            name: Name for the file in Drive
-            parent_folder_id: ID of parent folder
-            description: File description
-            mime_type: MIME type of the content
-
-        Returns:
-            DriveFile object for the uploaded file
-        """
         metadata = utils.build_file_metadata(
             name=utils.sanitize_filename(name),
             parents=[parent_folder_id] if parent_folder_id else None,
@@ -195,28 +154,20 @@ class DriveApiService:
             resumable=True
         )
 
-        result = self._service.files().create(
-            body=metadata,
-            media_body=media,
-            fields=DEFAULT_FILE_FIELDS
-        ).execute()
+        loop = asyncio.get_event_loop()
+        result = await loop.run_in_executor(
+            self._executor,
+            lambda: self._service().files().create(
+                body=metadata,
+                media_body=media,
+                fields=DEFAULT_FILE_FIELDS
+            ).execute()
+        )
 
         file_obj = utils.convert_api_file_to_drive_file(result)
         return file_obj
 
-    def download_file(self, file: DriveFile | str, download_folder: str, file_name: str = None) -> str:
-        """
-        Download a file from Drive to local disk.
-
-        Args:
-            file: DriveFile object to download
-            download_folder: Local directory where to save the file
-            file_name: Optional file name with extension
-
-        Returns:
-            Local path of the downloaded file
-        """
-
+    async def download_file(self, file: DriveFile | str, download_folder: str, file_name: str = None) -> str:
         download_folder = Path(download_folder)
         download_folder.mkdir(parents=True, exist_ok=True)
 
@@ -227,55 +178,40 @@ class DriveApiService:
             file_name = file.name
         file_path = str(download_folder.joinpath(file_name))
         with open(file_path, "wb") as f:
-            f.write(self.get_file_payload(file))
+            f.write(await self.get_file_payload(file))
 
         return file_path
 
-    def get_file_payload(self, file: DriveFile | str) -> bytes:
-        """
-        Download file content as bytes.
-
-        Args:
-            file: DriveFile object to download
-
-        Returns:
-            File content as bytes
-        """
+    async def get_file_payload(self, file: DriveFile | str) -> bytes:
         if isinstance(file, str):
             file = self.get(file)
-        content_io = io.BytesIO()
-        if file.is_google_doc():
-            request = self._service.files().export_media(
-                fileId=file.file_id, mimeType=utils.convert_mime_type_to_downloadable(file.mime_type)
-            )
-        else:
-            request = self._service.files().get_media(fileId=file.file_id)
 
-        downloader = MediaIoBaseDownload(content_io, request)
-        done = False
-        while not done:
-            status, done = downloader.next_chunk()
+        def _download():
+            content_io = io.BytesIO()
+            if file.is_google_doc():
+                request = self._service().files().export_media(
+                    fileId=file.file_id, mimeType=convert_mime_type_to_downloadable(file.mime_type)
+                )
+            else:
+                request = self._service().files().get_media(fileId=file.file_id)
 
-        content = content_io.getvalue()
+            downloader = MediaIoBaseDownload(content_io, request)
+            done = False
+            while not done:
+                status, done = downloader.next_chunk()
+
+            return content_io.getvalue()
+
+        loop = asyncio.get_event_loop()
+        content = await loop.run_in_executor(self._executor, _download)
         return content
 
-    def create_folder(
+    async def create_folder(
             self,
             name: str,
             parent_folder: DriveFolder | str = 'root',
             description: Optional[str] = None
     ) -> DriveFolder:
-        """
-        Create a new folder in Drive.
-
-        Args:
-            name: Name of the folder
-            parent_folder: Parent DriveFolder (optional)
-            description: Folder description
-
-        Returns:
-            DriveFolder object for the created folder
-        """
         if isinstance(parent_folder, DriveFolder):
             parent_folder = parent_folder.folder_id
 
@@ -286,47 +222,34 @@ class DriveApiService:
             mimeType=FOLDER_MIME_TYPE
         )
 
-        result = self._service.files().create(
-            body=metadata,
-            fields=DEFAULT_FILE_FIELDS
-        ).execute()
+        loop = asyncio.get_event_loop()
+        result = await loop.run_in_executor(
+            self._executor,
+            lambda: self._service().files().create(
+                body=metadata,
+                fields=DEFAULT_FILE_FIELDS
+            ).execute()
+        )
 
         folder_obj = utils.convert_api_file_to_drive_folder(result)
         return folder_obj
 
-    def delete(self, item: DriveItem) -> bool:
-        """
-        Delete a file or folder from Drive.
-
-        Args:
-            item: DriveItem object to delete
-
-        Returns:
-            True if deletion was successful
-
-        """
+    async def delete(self, item: DriveItem | str) -> bool:
         if isinstance(item, DriveItem):
             item = item.item_id
-        self._service.files().delete(fileId=item).execute()
+        loop = asyncio.get_event_loop()
+        await loop.run_in_executor(
+            self._executor,
+            lambda: self._service().files().delete(fileId=item).execute()
+        )
         return True
 
-    def copy(
+    async def copy(
             self,
             item: DriveItem | str,
             destination_folder: DriveFolder | str,
             new_name: Optional[str] = None
     ) -> DriveItem:
-        """
-        Copy a file or folder in Drive.
-
-        Args:
-            item: DriveItem object to copy
-            new_name: Name for the copied item
-            destination_folder: Parent DriveFolder for the copy
-
-        Returns:
-            DriveItem object for the copied item
-        """
         if isinstance(item, DriveItem):
             item = item.item_id
         if isinstance(destination_folder, DriveFolder):
@@ -338,43 +261,41 @@ class DriveApiService:
         if destination_folder:
             metadata['parents'] = [destination_folder]
 
-        result = self._service.files().copy(
-            fileId=item,
-            body=metadata,
-            fields=DEFAULT_FILE_FIELDS
-        ).execute()
+        loop = asyncio.get_event_loop()
+        result = await loop.run_in_executor(
+            self._executor,
+            lambda: self._service().files().copy(
+                fileId=item.item_id,
+                body=metadata,
+                fields=DEFAULT_FILE_FIELDS
+            ).execute()
+        )
 
         copied_item = utils.convert_api_file_to_correct_type(result)
         return copied_item
 
-    def rename(
+    async def rename(
             self,
             item: DriveItem | str,
-            name: str
+            name: str,
     ) -> DriveItem:
-        """
-        Rename a file or folder in Drive.
-
-        Args:
-            item: DriveItem object to update
-            name: New name for the item
-
-        Returns:
-            Updated DriveItem object
-        """
         if isinstance(item, DriveItem):
             item = item.item_id
 
-        result = self._service.files().update(
-            fileId=item,
-            body={'name': utils.sanitize_filename(name)},
-            fields=DEFAULT_FILE_FIELDS
-        ).execute()
+        loop = asyncio.get_event_loop()
+        result = await loop.run_in_executor(
+            self._executor,
+            lambda: self._service().files().update(
+                fileId=item,
+                body={'name': utils.sanitize_filename(name)},
+                fields=DEFAULT_FILE_FIELDS
+            ).execute()
+        )
 
         updated_item = utils.convert_api_file_to_correct_type(result)
         return updated_item
 
-    def share(
+    async def share(
             self,
             item: DriveItem | str,
             email: str,
@@ -382,19 +303,6 @@ class DriveApiService:
             notify: bool = True,
             message: Optional[str] = None
     ) -> Permission:
-        """
-        Share a file or folder with a user.
-
-        Args:
-            item: DriveItem object or item_id to share
-            email: Email address of the user to share with
-            role: Permission role (reader, writer, commenter)
-            notify: Whether to send notification email
-            message: Custom message to include in notification
-
-        Returns:
-            Permission object for the created permission
-        """
         if isinstance(item, DriveItem):
             item = item.item_id
 
@@ -404,59 +312,52 @@ class DriveApiService:
             'emailAddress': email
         }
 
-        result = self._service.permissions().create(
-            fileId=item,
-            body=permission_metadata,
-            sendNotificationEmail=notify,
-            emailMessage=message,
-            fields='*'
-        ).execute()
+        loop = asyncio.get_event_loop()
+        result = await loop.run_in_executor(
+            self._executor,
+            lambda: self._service().permissions().create(
+                fileId=item,
+                body=permission_metadata,
+                sendNotificationEmail=notify,
+                emailMessage=message,
+                fields='*'
+            ).execute()
+        )
 
         permission = utils.convert_api_permission_to_permission(result)
         return permission
 
-    def get_permissions(self, item: DriveItem | str) -> List[Permission]:
-        """
-        Get all permissions for a file or folder.
-
-        Args:
-            item: DriveItem object to get permissions for
-
-        Returns:
-            List of Permission objects
-        """
+    async def get_permissions(self, item: DriveItem | str) -> List[Permission]:
         if isinstance(item, DriveItem):
             item = item.item_id
 
-        result = self._service.permissions().list(
-            fileId=item,
-            fields='permissions(*)'
-        ).execute()
+        loop = asyncio.get_event_loop()
+        result = await loop.run_in_executor(
+            self._executor,
+            lambda: self._service().permissions().list(
+                fileId=item,
+                fields='permissions(*)'
+            ).execute()
+        )
 
         permissions = [utils.convert_api_permission_to_permission(perm) for perm in result.get('permissions', [])]
         return permissions
 
-    def remove_permission(self, item: DriveItem | str, permission_id: str) -> bool:
-        """
-        Remove a permission from a file or folder.
-
-        Args:
-            item: DriveItem object to remove permission from
-            permission_id: ID of the permission to remove
-
-        Returns:
-            True if removal was successful
-        """
+    async def remove_permission(self, item: DriveItem | str, permission_id: str) -> bool:
         if isinstance(item, DriveItem):
             item = item.item_id
 
-        self._service.permissions().delete(
-            fileId=item,
-            permissionId=permission_id
-        ).execute()
+        loop = asyncio.get_event_loop()
+        await loop.run_in_executor(
+            self._executor,
+            lambda: self._service().permissions().delete(
+                fileId=item,
+                permissionId=permission_id
+            ).execute()
+        )
         return True
 
-    def list_folder_contents(
+    async def list_folder_contents(
             self,
             folder: DriveFolder | str,
             include_folders: bool = True,
@@ -464,17 +365,6 @@ class DriveApiService:
             max_results: Optional[int] = DEFAULT_MAX_RESULTS,
             order_by: Optional[str] = None
     ) -> List[DriveItem]:
-        """
-        List all contents (files and/or folders) within a specific folder.
-
-        Args:
-            folder: DriveFolder object representing the folder or the folder_id
-            include_folders: Whether to include subfolders in results
-            include_files: Whether to include files in results
-            max_results: Maximum number of items to return
-            order_by: Field to order results by
-        """
-
         if isinstance(folder, DriveFolder):
             folder = folder.folder_id
 
@@ -491,27 +381,16 @@ class DriveApiService:
         if order_by:
             query_builder = query_builder.order_by(order_by)
 
-        contents = query_builder.execute()
+        contents = await query_builder.execute()
 
         return contents
 
-    def move(
+    async def move(
             self,
             item: DriveItem | str,
-            target_folder: DriveFolder | str,
+            target_folder: DriveFolder,
             remove_from_current_parents: bool = True
     ) -> DriveItem:
-        """
-        Move a file or folder to a different parent folder.
-
-        Args:
-            item: DriveItem object or DriveItem id to move
-            target_folder: Target DriveFolder or folder_id
-            remove_from_current_parents: Whether to remove from current parents
-
-        Returns:
-            Updated DriveItem object
-        """
         if isinstance(item, str):
             item = self.get(item)
         if isinstance(target_folder, DriveFolder):
@@ -526,53 +405,48 @@ class DriveApiService:
         if remove_from_current_parents and item.parent_ids:
             update_params['removeParents'] = ','.join(item.parent_ids)
 
-        result = self._service.files().update(**update_params).execute()
+        loop = asyncio.get_event_loop()
+        result = await loop.run_in_executor(
+            self._executor,
+            lambda: self._service().files().update(**update_params).execute()
+        )
 
         updated_item = utils.convert_api_file_to_correct_type(result)
         return updated_item
 
-    def get_parent_folder(self, item: DriveItem | str) -> Optional[DriveFolder]:
-        """
-        Get the parent folder of a file or folder.
-
-        Args:
-            item: DriveItem object or DriveItem id to get parent for
-
-        Returns:
-            Parent DriveFolder, or None if no parent
-        """
+    async def get_parent_folder(self, item: DriveItem | str) -> Optional[DriveFolder]:
         if isinstance(item, str):
             item = self.get(item)
 
-        if not (parent_id := item.get_parent_folder_id()):
+        parent_id = item.get_parent_folder_id()
+        if not parent_id:
             return None
 
-        result = self._service.files().get(
-            fileId=parent_id,
-            fields=DEFAULT_FILE_FIELDS
-        ).execute()
+        loop = asyncio.get_event_loop()
+        result = await loop.run_in_executor(
+            self._executor,
+            lambda: self._service().files().get(
+                fileId=parent_id,
+                fields=DEFAULT_FILE_FIELDS
+            ).execute()
+        )
 
         parent_folder = utils.convert_api_file_to_drive_folder(result)
         return parent_folder
 
-    def get_folder_by_path(self, path: str, root_folder_id: str = "root") -> Optional[DriveFolder]:
-        """
-        Find a folder by its path relative to a root folder.
+    async def get_folder_by_path(self, path: str, root_folder_id: str = "root") -> Optional[DriveFolder]:
 
-        Args:
-            path: Folder path like "/Documents/Projects" or "Documents/Projects"
-            root_folder_id: ID of the root folder to start from (default: Drive root)
-
-        Returns:
-            DriveFolder object for the folder, or None if not found
-        """
         folder_names = utils.parse_folder_path(path)
         if not folder_names:
             try:
-                result = self._service.files().get(
-                    fileId=root_folder_id,
-                    fields=DEFAULT_FILE_FIELDS
-                ).execute()
+                loop = asyncio.get_event_loop()
+                result = await loop.run_in_executor(
+                    self._executor,
+                    lambda: self._service().files().get(
+                        fileId=root_folder_id,
+                        fields=DEFAULT_FILE_FIELDS
+                    ).execute()
+                )
                 return utils.convert_api_file_to_drive_folder(result)
             except Exception:
                 return None
@@ -580,7 +454,7 @@ class DriveApiService:
         current_folder_id = root_folder_id
 
         for folder_name in folder_names:
-            folders = (self.query()
+            folders = await (self.query()
                        .in_folder(current_folder_id)
                        .folders_named(folder_name)
                        .limit(1)
@@ -591,31 +465,24 @@ class DriveApiService:
 
             current_folder_id = folders[0].folder_id
 
-        result = self._service.files().get(
-            fileId=current_folder_id,
-            fields=DEFAULT_FILE_FIELDS
-        ).execute()
+        loop = asyncio.get_event_loop()
+        result = await loop.run_in_executor(
+            self._executor,
+            lambda: self._service().files().get(
+                fileId=current_folder_id,
+                fields=DEFAULT_FILE_FIELDS
+            ).execute()
+        )
 
         final_folder = utils.convert_api_file_to_drive_folder(result)
         return final_folder
 
-    def create_folder_path(
+    async def create_folder_path(
             self,
             path: str,
             root_folder_id: str = "root",
             description: Optional[str] = None
     ) -> DriveFolder:
-        """
-        Create a nested folder structure from a path, creating missing folders as needed.
-
-        Args:
-            path: Folder path like "/Documents/Projects/MyProject"
-            root_folder_id: ID of the root folder to start from
-            description: Description for the final folder
-
-        Returns:
-            DriveFolder object for the final folder in the path
-        """
         folder_names = utils.parse_folder_path(path)
         if not folder_names:
             raise ValueError("Invalid folder path")
@@ -623,7 +490,7 @@ class DriveApiService:
         current_folder_id = root_folder_id
 
         for i, folder_name in enumerate(folder_names):
-            existing_folders = (self.query()
+            existing_folders = await (self.query()
                                 .in_folder(current_folder_id)
                                 .folders_named(folder_name)
                                 .limit(1)
@@ -636,68 +503,63 @@ class DriveApiService:
                 if current_folder_id == root_folder_id:
                     parent_folder = None
                 else:
-                    parent_result = self._service.files().get(
-                        fileId=current_folder_id,
-                        fields=DEFAULT_FILE_FIELDS
-                    ).execute()
+                    loop = asyncio.get_event_loop()
+                    parent_result = await loop.run_in_executor(
+                        self._executor,
+                        lambda: self._service().files().get(
+                            fileId=current_folder_id,
+                            fields=DEFAULT_FILE_FIELDS
+                        ).execute()
+                    )
                     parent_folder = utils.convert_api_file_to_drive_folder(parent_result)
 
-                new_folder = self.create_folder(
+                new_folder = await self.create_folder(
                     name=folder_name,
                     parent_folder=parent_folder,
                     description=folder_desc
                 )
                 current_folder_id = new_folder.folder_id
 
-        result = self._service.files().get(
-            fileId=current_folder_id,
-            fields=DEFAULT_FILE_FIELDS
-        ).execute()
+        # Return the final folder
+        loop = asyncio.get_event_loop()
+        result = await loop.run_in_executor(
+            self._executor,
+            lambda: self._service().files().get(
+                fileId=current_folder_id,
+                fields=DEFAULT_FILE_FIELDS
+            ).execute()
+        )
 
         final_folder = utils.convert_api_file_to_drive_folder(result)
         return final_folder
 
-    def move_to_trash(self, item: DriveItem | str) -> DriveItem:
-        """
-        Move a file or folder to trash.
-        Args:
-            item: DriveItem object or item_id to move to trash
-        Returns:
-            Updated DriveItem object
-        """
+    async def move_to_trash(self, item: DriveItem | str) -> DriveItem:
         if isinstance(item, DriveItem):
             item = item.item_id
-        result = self._service.files().update(
-            fileId=item,
-            body={'trashed': True},
-            fields=DEFAULT_FILE_FIELDS
-        ).execute()
+
+        loop = asyncio.get_event_loop()
+        result = await loop.run_in_executor(
+            self._executor,
+            lambda: self._service().files().update(
+                fileId=item,
+                body={'trashed': True},
+                fields=DEFAULT_FILE_FIELDS
+            ).execute()
+        )
 
         updated_item = utils.convert_api_file_to_correct_type(result)
         return updated_item
 
-    def get_directory_tree(
+    async def get_directory_tree(
             self,
             folder: DriveFolder | str = 'root',
             max_depth: int = 3,
             include_files: bool = True
     ) -> Dict[str, Any]:
-        """
-        Get directory tree structure as nested dictionary.
-
-        Args:
-            folder: DriveFolder to get tree structure for
-            max_depth: Maximum depth to traverse (prevents infinite loops)
-            include_files: Whether to include files in the tree
-
-        Returns:
-            Nested dictionary representing the tree structure
-        """
         if isinstance(folder, str):
             folder = self.get(folder)
 
-        def _build_tree_recursive(current_folder: DriveFolder, current_depth: int) -> Dict[str, Any]:
-            # Build current node
+        async def _build_tree_recursive(current_folder: DriveFolder, current_depth: int) -> Dict[str, Any]:
             node = {
                 'name': current_folder.name,
                 'type': 'folder',
@@ -706,27 +568,22 @@ class DriveApiService:
                 'children': []
             }
 
-            # Stop recursion if max depth reached
             if current_depth >= max_depth:
                 return node
 
             try:
-                # Get folder contents
-                contents = self.list_folder_contents(
+                contents = await self.list_folder_contents(
                     current_folder,
                     include_folders=True,
                     include_files=include_files,
                     max_results=1000
                 )
 
-                # Process each item
                 for item in contents:
                     if isinstance(item, DriveFolder):
-                        # Recursively build subtree for folders
-                        child_node = _build_tree_recursive(item, current_depth + 1)
+                        child_node = await _build_tree_recursive(item, current_depth + 1)
                         node['children'].append(child_node)
                     elif isinstance(item, DriveFile) and include_files:
-                        # Add file node
                         file_node = {
                             'name': item.name,
                             'type': 'file',
@@ -737,16 +594,15 @@ class DriveApiService:
                         node['children'].append(file_node)
 
             except (FolderNotFoundError, PermissionDeniedError) as e:
-                # Handle permission errors gracefully
                 node['children'] = None
                 node['error'] = str(e)
 
             return node
 
-        tree = _build_tree_recursive(folder, 0)
+        tree = await _build_tree_recursive(folder, 0)
         return tree
 
-    def print_directory_tree(
+    async def print_directory_tree(
             self,
             folder: DriveFolder | str = 'root',
             max_depth: int = 3,
@@ -756,31 +612,16 @@ class DriveApiService:
             _current_depth: int = 0,
             _prefix: str = ""
     ) -> None:
-        """
-        Print visual tree representation of folder structure.
-
-        Args:
-            folder: DriveFolder to print tree structure for
-            max_depth: Maximum depth to traverse
-            show_files: Whether to include files in the output
-            show_sizes: Whether to show file sizes
-            show_dates: Whether to show modification dates
-            _current_depth: Internal parameter for recursion
-            _prefix: Internal parameter for tree formatting
-        """
         if isinstance(folder, str):
             folder = self.get(folder)
 
-        # Print current folder
         if _current_depth == 0:
             print(f"📁 {folder.name}/")
 
-        # Stop recursion if max depth reached
         if _current_depth >= max_depth:
             return
 
-        # Get folder contents
-        contents = self.list_folder_contents(
+        contents = await self.list_folder_contents(
             folder,
             include_folders=True,
             include_files=show_files,
@@ -788,7 +629,6 @@ class DriveApiService:
             order_by="name"
         )
 
-        # Sort contents: folders first, then files
         folders = [item for item in contents if isinstance(item, DriveFolder)]
         files = [item for item in contents if isinstance(item, DriveFile)]
         sorted_contents = folders + files
@@ -796,7 +636,6 @@ class DriveApiService:
         for i, item in enumerate(sorted_contents):
             is_last = (i == len(sorted_contents) - 1)
 
-            # Choose tree characters
             if is_last:
                 current_prefix = _prefix + "└── "
                 next_prefix = _prefix + "    "
@@ -804,14 +643,11 @@ class DriveApiService:
                 current_prefix = _prefix + "├── "
                 next_prefix = _prefix + "│   "
 
-            # Format item display
             if isinstance(item, DriveFolder):
-                # Folder display
                 display_name = f"📁 {item.name}/"
                 print(current_prefix + display_name)
 
-                # Recursively print subfolder
-                self.print_directory_tree(
+                await self.print_directory_tree(
                     item,
                     max_depth=max_depth,
                     show_files=show_files,
@@ -822,7 +658,6 @@ class DriveApiService:
                 )
 
             elif isinstance(item, DriveFile):
-                # File display
                 display_parts = [f"📄 {item.name}"]
 
                 if show_sizes and item.size is not None:
