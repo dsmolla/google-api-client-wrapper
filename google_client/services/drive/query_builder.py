@@ -345,7 +345,6 @@ class DriveQueryBuilder:
         """
         return self.order_by("createdTime", ascending)
 
-    # Convenience date filter methods
     def created_today(self) -> "DriveQueryBuilder":
         """
         Filter files created today.
@@ -353,8 +352,7 @@ class DriveQueryBuilder:
             Self for method chaining
         """
         today = current_datetime(self._timezone).replace(hour=0, minute=0, second=0, microsecond=0)
-        end_of_day = today + timedelta(days=1)
-        return self.created_after(today).created_before(end_of_day)
+        return self.created_after(today)
 
     def created_yesterday(self) -> "DriveQueryBuilder":
         """
@@ -376,8 +374,7 @@ class DriveQueryBuilder:
         today = now.replace(hour=0, minute=0, second=0, microsecond=0)
         days_since_monday = today.weekday()
         monday = today - timedelta(days=days_since_monday)
-        next_monday = monday + timedelta(days=7)
-        return self.created_after(monday).created_before(next_monday)
+        return self.created_after(monday)
 
     def created_this_month(self) -> "DriveQueryBuilder":
         """
@@ -387,12 +384,7 @@ class DriveQueryBuilder:
         """
         now = current_datetime(self._timezone)
         start_of_month = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
-        # Calculate next month
-        if now.month == 12:
-            next_month = start_of_month.replace(year=now.year + 1, month=1)
-        else:
-            next_month = start_of_month.replace(month=now.month + 1)
-        return self.created_after(start_of_month).created_before(next_month)
+        return self.created_after(start_of_month)
 
     def created_last_days(self, days: int) -> "DriveQueryBuilder":
         """
@@ -404,23 +396,9 @@ class DriveQueryBuilder:
         """
         if days < 1:
             raise ValueError("Days must be positive")
-        now = current_datetime(self._timezone)
+        now = current_datetime(self._timezone).replace(hour=0, minute=0, second=0, microsecond=0)
         start_time = now - timedelta(days=days)
         return self.created_after(start_time)
-
-    def created_next_days(self, days: int) -> "DriveQueryBuilder":
-        """
-        Filter files to be created in the next N days.
-        Args:
-            days: Number of days to look ahead
-        Returns:
-            Self for method chaining
-        """
-        if days < 1:
-            raise ValueError("Days must be positive")
-        now = current_datetime(self._timezone)
-        end_time = now + timedelta(days=days)
-        return self.created_before(end_time)
 
     def modified_today(self) -> "DriveQueryBuilder":
         """
@@ -429,8 +407,7 @@ class DriveQueryBuilder:
             Self for method chaining
         """
         today = current_datetime(self._timezone).replace(hour=0, minute=0, second=0, microsecond=0)
-        end_of_day = today + timedelta(days=1)
-        return self.modified_after(today).modified_before(end_of_day)
+        return self.modified_after(today)
 
     def modified_yesterday(self) -> "DriveQueryBuilder":
         """
@@ -452,8 +429,7 @@ class DriveQueryBuilder:
         today = now.replace(hour=0, minute=0, second=0, microsecond=0)
         days_since_monday = today.weekday()
         monday = today - timedelta(days=days_since_monday)
-        next_monday = monday + timedelta(days=7)
-        return self.modified_after(monday).modified_before(next_monday)
+        return self.modified_after(monday)
 
     def modified_this_month(self) -> "DriveQueryBuilder":
         """
@@ -463,12 +439,7 @@ class DriveQueryBuilder:
         """
         now = current_datetime(self._timezone)
         start_of_month = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
-        # Calculate next month
-        if now.month == 12:
-            next_month = start_of_month.replace(year=now.year + 1, month=1)
-        else:
-            next_month = start_of_month.replace(month=now.month + 1)
-        return self.modified_after(start_of_month).modified_before(next_month)
+        return self.modified_after(start_of_month)
 
     def modified_last_days(self, days: int) -> "DriveQueryBuilder":
         """
@@ -483,20 +454,6 @@ class DriveQueryBuilder:
         now = current_datetime(self._timezone)
         start_time = now - timedelta(days=days)
         return self.modified_after(start_time)
-
-    def modified_next_days(self, days: int) -> "DriveQueryBuilder":
-        """
-        Filter files to be modified in the next N days.
-        Args:
-            days: Number of days to look ahead
-        Returns:
-            Self for method chaining
-        """
-        if days < 1:
-            raise ValueError("Days must be positive")
-        now = current_datetime(self._timezone)
-        end_time = now + timedelta(days=days)
-        return self.modified_before(end_time)
 
     def _build_query(self) -> str:
         """
