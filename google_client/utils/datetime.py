@@ -1,5 +1,4 @@
 from datetime import datetime
-
 import pytz
 
 
@@ -33,6 +32,9 @@ def datetime_to_zone(date_time: datetime, timezone: str) -> datetime:
     """
     return pytz.timezone(timezone).localize(date_time)
 
+def convert_timezone(date_time: datetime, original_timezone: str, new_timezone: str) -> datetime:
+    og_datetime = datetime_to_zone(date_time, original_timezone)
+    return og_datetime.astimezone(pytz.timezone(new_timezone))
 
 def datetime_to_readable(start: datetime, end: datetime = None) -> str:
     """
