@@ -18,6 +18,11 @@ class AsyncCalendarApiService:
         self._credentials = credentials
         self._timezone = timezone
 
+    def __del__(self):
+        """Cleanup ThreadPoolExecutor on deletion."""
+        if hasattr(self, '_executor'):
+            self._executor.shutdown(wait=False)
+
     def _service(self):
         return build("calendar", "v3", credentials=self._credentials)
 

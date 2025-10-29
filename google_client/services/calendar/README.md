@@ -1,48 +1,55 @@
 # Calendar Service Package
 
-A comprehensive, user-centric Google Calendar client library that provides clean, intuitive access to calendar operations through the Google API. This package enables you to create, manage, and schedule calendar events programmatically with full OAuth2 authentication support.
+A comprehensive Google Calendar client library that provides clean, intuitive access to calendar operations through the Google API. This package enables you to create, manage, and schedule calendar events programmatically with both synchronous and asynchronous support.
 
 ## Table of Contents
 
 - [Overview](#overview)
 - [Quick Start](#quick-start)
+  - [Synchronous Usage](#synchronous-usage)
+  - [Asynchronous Usage](#asynchronous-usage)
 - [Core Components](#core-components)
 - [Event Operations](#event-operations)
 - [Query Builder](#query-builder)
 - [Free/Busy Scheduling](#freebusy-scheduling)
 - [Batch Operations](#batch-operations)
+- [Async API](#async-api)
 - [Error Handling](#error-handling)
 - [Examples](#examples)
 - [API Reference](#api-reference)
 
 ## Overview
 
-The Calendar service package follows a user-centric design pattern where each user gets their own client instance with OAuth credentials. This enables multi-user scenarios and maintains proper authentication isolation.
+The Calendar service package provides both synchronous and asynchronous APIs for Google Calendar operations, with proper OAuth2 authentication and timezone support.
 
 ### Key Features
 
 - **Intuitive Event Operations**: Create, update, delete, and manage calendar events
 - **Powerful Query Builder**: Fluent API for complex event searches
 - **Free/Busy Scheduling**: Check availability and find optimal meeting times
-- **Batch Operations**: Efficient bulk calendar operations
+- **Batch Operations**: Efficient bulk calendar operations with concurrent async support
+- **Async/Await Support**: Full async implementation for high-performance applications
 - **Timezone Support**: Automatic timezone handling and conversion
 - **Security First**: Built-in validation and secure handling of credentials
 
 ## Quick Start
 
-```python
-from google_client.user_client import UserClient
-from datetime import datetime, timedelta
+### Synchronous Usage
 
-# Initialize user client with OAuth credentials
-user = UserClient.from_file(
-    token_file="user_token.json",
-    credentials_file="credentials.json",
-    scopes=["https://www.googleapis.com/auth/calendar"]
-)
+```python
+from google_client.api_service import APIServiceLayer
+from datetime import datetime, timedelta
+import json
+
+# Load user credentials
+with open('user_token.json', 'r') as f:
+    user_info = json.load(f)
+
+# Initialize API service layer
+api_service = APIServiceLayer(user_info, timezone='America/New_York')
 
 # Access Calendar service
-calendar = user.calendar
+calendar = api_service.calendar
 
 # Create a simple event
 calendar.create_event(
@@ -63,15 +70,60 @@ events = (calendar.query()
 print(f"Found {len(events)} meetings today")
 ```
 
+### Asynchronous Usage
+
+```python
+import asyncio
+from google_client.api_service import APIServiceLayer
+from datetime import datetime, timedelta
+import json
+
+async def main():
+    # Load user credentials
+    with open('user_token.json', 'r') as f:
+        user_info = json.load(f)
+
+    # Initialize API service layer
+    api_service = APIServiceLayer(user_info, timezone='America/New_York')
+
+    # Access async Calendar service
+    calendar = api_service.async_calendar
+
+    # Create a simple event (async)
+    await calendar.create_event(
+        start=datetime.now() + timedelta(hours=1),
+        end=datetime.now() + timedelta(hours=2),
+        summary="Team Meeting",
+        description="Weekly sync with the development team",
+        location="Conference Room A"
+    )
+
+    # Search for events (async)
+    events = await (calendar.query()
+        .search("meeting")
+        .today()
+        .with_location()
+        .execute())
+
+    # Batch get events concurrently
+    event_ids = [event.event_id for event in events[:10]]
+    events_detail = await calendar.batch_get_events(event_ids)
+
+    print(f"Found {len(events)} meetings today")
+
+# Run async code
+asyncio.run(main())
+```
+
 ## Core Components
 
 ### CalendarApiService
 
-The main service class that provides all calendar operations:
+The main synchronous service class that provides all calendar operations:
 
 ```python
-# Access through user client
-calendar = user.calendar
+# Access through APIServiceLayer
+calendar = api_service.calendar
 
 # Available operations
 events = calendar.list_events()
@@ -370,12 +422,98 @@ created_events = calendar.batch_create_events(events_data)
 created_events = calendar.batch_create_events(events_data, calendar_id="team@company.com")
 ```
 
+## Async API
+
+All Calendar operations are available in async versions for high-performance applications. The async API provides true concurrent operations using Python's `async`/`await` syntax.
+
+### Accessing Async Calendar
+
+```python
+from google_client.api_service import APIServiceLayer
+import asyncio
+
+# Access async version
+api_service = APIServiceLayer(user_info, timezone='America/New_York')
+async_calendar = api_service.async_calendar
+```
+
+### Async Examples
+
+```python
+import asyncio
+from datetime import datetime, timedelta
+
+async def calendar_operations():
+    # All sync methods have async equivalents
+    event = await async_calendar.create_event(
+        start=datetime.now(),
+        end=datetime.now() + timedelta(hours=1),
+        summary="Team Standup"
+    )
+
+    # List events
+    events = await async_calendar.list_events(
+        start=datetime.now(),
+        end=datetime.now() + timedelta(days=7)
+    )
+
+    # Concurrent operations are much faster
+    event_ids = [e.event_id for e in events[:10]]
+    events_detail = await async_calendar.batch_get_events(event_ids)
+
+    # Async query builder
+    meetings = await (async_calendar.query()
+        .search("standup")
+        .this_week()
+        .execute())
+
+    # Check free/busy
+    busy_times = await async_calendar.get_freebusy(
+        start=datetime.now(),
+        end=datetime.now() + timedelta(days=1),
+        calendar_ids=["primary"]
+    )
+
+asyncio.run(calendar_operations())
+```
+
+### Performance Benefits
+
+Async operations shine when creating or fetching multiple events:
+
+```python
+import time
+
+# Sync: Sequential (slower)
+start = time.time()
+for event_data in events_data[:20]:
+    calendar.create_event(**event_data)
+print(f"Sync: {time.time() - start:.2f}s")  # ~10-15 seconds
+
+# Async: Concurrent (faster)
+start = time.time()
+await async_calendar.batch_create_events(events_data[:20])
+print(f"Async: {time.time() - start:.2f}s")  # ~1-2 seconds
+```
+
+### Async API Methods
+
+All synchronous methods have async equivalents:
+- `async_calendar.list_events()` → `await async_calendar.list_events()`
+- `async_calendar.get_event()` → `await async_calendar.get_event()`
+- `async_calendar.create_event()` → `await async_calendar.create_event()`
+- `async_calendar.update_event()` → `await async_calendar.update_event()`
+- `async_calendar.delete_event()` → `await async_calendar.delete_event()`
+- `async_calendar.get_freebusy()` → `await async_calendar.get_freebusy()`
+- `async_calendar.batch_get_events()` → `await async_calendar.batch_get_events()`
+- And all other methods...
+
 ## Error Handling
 
 The Calendar service includes comprehensive error handling:
 
 ```python
-from google_api_client.services.calendar.exceptions import (
+from google_client.services.calendar.exceptions import (
     CalendarError,
     EventNotFoundError,
     CalendarNotFoundError,

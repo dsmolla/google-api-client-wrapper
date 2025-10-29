@@ -1,24 +1,27 @@
 # Drive Service Package
 
-A comprehensive, user-centric Google Drive client library that provides clean, intuitive access to Drive operations through the Google API. This package enables you to manage files, folders, permissions, and perform complex searches programmatically with full OAuth2 authentication support.
+A comprehensive Google Drive client library that provides clean, intuitive access to Drive operations through the Google API. This package enables you to manage files, folders, permissions, and perform complex searches programmatically with both synchronous and asynchronous support.
 
 ## Table of Contents
 
 - [Overview](#overview)
 - [Quick Start](#quick-start)
+  - [Synchronous Usage](#synchronous-usage)
+  - [Asynchronous Usage](#asynchronous-usage)
 - [Core Components](#core-components)
 - [File Operations](#file-operations)
 - [Folder Operations](#folder-operations)
 - [Query Builder](#query-builder)
 - [Permissions and Sharing](#permissions-and-sharing)
 - [Directory Tree Operations](#directory-tree-operations)
+- [Async API](#async-api)
 - [Error Handling](#error-handling)
 - [Examples](#examples)
 - [API Reference](#api-reference)
 
 ## Overview
 
-The Drive service package follows a user-centric design pattern where each user gets their own client instance with OAuth credentials. This enables multi-user scenarios and maintains proper authentication isolation.
+The Drive service package provides both synchronous and asynchronous APIs for Google Drive operations, with proper OAuth2 authentication and timezone support.
 
 ### Key Features
 
@@ -27,23 +30,27 @@ The Drive service package follows a user-centric design pattern where each user 
 - **Powerful Query Builder**: Fluent API for complex file and folder searches
 - **Permission Management**: Share files and folders with granular access control
 - **Directory Tree Navigation**: Visual and programmatic folder structure exploration
-- **Batch Operations**: Efficient bulk file operations
+- **Batch Operations**: Efficient bulk file operations with concurrent async support
+- **Async/Await Support**: Full async implementation for high-performance applications
 - **Security First**: Built-in validation and secure handling of credentials
 
 ## Quick Start
 
-```python
-from google_client.user_client import UserClient
+### Synchronous Usage
 
-# Initialize user client with OAuth credentials
-user = UserClient.from_file(
-    token_file="user_token.json",
-    credentials_file="credentials.json",
-    scopes=["https://www.googleapis.com/auth/drive"]
-)
+```python
+from google_client.api_service import APIServiceLayer
+import json
+
+# Load user credentials
+with open('user_token.json', 'r') as f:
+    user_info = json.load(f)
+
+# Initialize API service layer
+api_service = APIServiceLayer(user_info, timezone='America/New_York')
 
 # Access Drive service
-drive = user.drive
+drive = api_service.drive
 
 # Upload a file
 file = drive.upload_file(
@@ -69,15 +76,60 @@ file_in_folder = drive.upload_file(
 print(f"Found {len(files)} files matching search")
 ```
 
+### Asynchronous Usage
+
+```python
+import asyncio
+from google_client.api_service import APIServiceLayer
+import json
+
+async def main():
+    # Load user credentials
+    with open('user_token.json', 'r') as f:
+        user_info = json.load(f)
+
+    # Initialize API service layer
+    api_service = APIServiceLayer(user_info, timezone='America/New_York')
+
+    # Access async Drive service
+    drive = api_service.async_drive
+
+    # Upload a file (async)
+    file = await drive.upload_file(
+        file_path="document.pdf",
+        name="My Important Document",
+        description="Project documentation"
+    )
+
+    # Search for files (async)
+    files = await (drive.query()
+        .search("meeting notes")
+        .file_type("application/pdf")
+        .limit(10)
+        .execute())
+
+    # Create folder and upload file concurrently
+    folder = await drive.create_folder("Project Files")
+    file_in_folder = await drive.upload_file(
+        "report.docx",
+        parent_folder_id=folder.folder_id
+    )
+
+    print(f"Found {len(files)} files matching search")
+
+# Run async code
+asyncio.run(main())
+```
+
 ## Core Components
 
 ### DriveApiService
 
-The main service class that provides all Drive operations:
+The main synchronous service class that provides all Drive operations:
 
 ```python
-# Access through user client
-drive = user.drive
+# Access through APIServiceLayer
+drive = api_service.drive
 
 # Available operations
 files = drive.list()
@@ -148,17 +200,19 @@ file = drive.upload_file_content(
 ### Downloading Files
 
 #### Download to Local File
+
 ```python
 local_path = drive.download_file(
     file=file,
-    dest_directory="./downloads",
+    download_folder="./downloads",
     file_name="custom_name.pdf"
 )
 ```
 
 #### Download Content to Memory
+
 ```python
-content_bytes = drive.download_file_content(file)
+content_bytes = drive.get_file_payload(file)
 content_str = content_bytes.decode('utf-8')
 ```
 
@@ -172,7 +226,7 @@ file = drive.get("file_id_here")
 copied_file = drive.copy(
     item=file,
     new_name="Copy of Document",
-    parent_folder=target_folder
+    destination_folder=target_folder
 )
 
 # Rename file
@@ -435,12 +489,86 @@ for child in tree['children']:
         print(f"File: {child['name']} ({child['size']} bytes)")
 ```
 
+## Async API
+
+All Drive operations are available in async versions for high-performance applications. The async API provides true concurrent operations using Python's `async`/`await` syntax.
+
+### Accessing Async Drive
+
+```python
+from google_client.api_service import APIServiceLayer
+import asyncio
+
+# Access async version
+api_service = APIServiceLayer(user_info, timezone='UTC')
+async_drive = api_service.async_drive
+```
+
+### Async Examples
+
+```python
+import asyncio
+
+async def drive_operations():
+    # All sync methods have async equivalents
+    file = await async_drive.upload_file("document.pdf")
+    files = await async_drive.list(max_results=20)
+    folder = await async_drive.create_folder("Project")
+
+    # Concurrent operations are much faster
+    results = await asyncio.gather(
+        async_drive.get("file_id_1"),
+        async_drive.get("file_id_2"),
+        async_drive.get("file_id_3"),
+    )
+
+    # Async query builder
+    files = await (async_drive.query()
+        .search("important")
+        .file_type("application/pdf")
+        .limit(50)
+        .execute())
+
+asyncio.run(drive_operations())
+```
+
+### Performance Benefits
+
+Async operations shine when performing multiple operations:
+
+```python
+import time
+
+# Sync: Sequential (slower)
+start = time.time()
+for file_id in file_ids[:20]:
+    file = drive.get(file_id)
+print(f"Sync: {time.time() - start:.2f}s")  # ~5-10 seconds
+
+# Async: Concurrent (faster)
+start = time.time()
+tasks = [async_drive.get(file_id) for file_id in file_ids[:20]]
+files = await asyncio.gather(*tasks)
+print(f"Async: {time.time() - start:.2f}s")  # ~0.5-1 second
+```
+
+### Async API Methods
+
+All synchronous methods have async equivalents:
+- `async_drive.list()` → `await async_drive.list()`
+- `async_drive.get()` → `await async_drive.get()`
+- `async_drive.upload_file()` → `await async_drive.upload_file()`
+- `async_drive.download_file()` → `await async_drive.download_file()`
+- `async_drive.create_folder()` → `await async_drive.create_folder()`
+- `async_drive.share()` → `await async_drive.share()`
+- And all other methods...
+
 ## Error Handling
 
 The Drive service includes comprehensive error handling:
 
 ```python
-from google_api_client.services.drive.exceptions import (
+from google_client.services.drive.exceptions import (
     DriveError,
     FileNotFoundError,
     FolderNotFoundError,
@@ -467,24 +595,32 @@ except DriveError as e:
 ### File Management Workflow
 
 ```python
-from google_api_client import UserClient
+from google_client.api_service import APIServiceLayer
 from datetime import datetime
+import json
+
+# Load credentials
+with open('user_token.json', 'r') as f:
+    user_info = json.load(f)
+
+api_service = APIServiceLayer(user_info, timezone='UTC')
+drive = api_service.drive
 
 def organize_project_files(drive):
     """Create project structure and organize files."""
-    
+
     # Create project folder structure
     project_folder = drive.create_folder("Project Alpha")
     docs_folder = drive.create_folder("Documents", parent_folder=project_folder)
     images_folder = drive.create_folder("Images", parent_folder=project_folder)
-    
+
     # Upload files to appropriate folders
     proposal = drive.upload_file(
         "proposal.pdf",
         parent_folder_id=docs_folder.folder_id,
         description="Project proposal document"
     )
-    
+
     # Share project folder with team
     drive.share(
         item=project_folder,
@@ -492,12 +628,12 @@ def organize_project_files(drive):
         role="writer",
         message="Project folder for Team Alpha"
     )
-    
+
     print(f"Created project structure with folders: {project_folder.name}")
     return project_folder
 
 # Usage
-project = organize_project_files(user.drive)
+project = organize_project_files(drive)
 ```
 
 ### Bulk File Operations
@@ -532,7 +668,7 @@ def cleanup_old_files(drive):
     print(f"Archived {len(old_files)} old files")
 
 # Usage
-cleanup_old_files(user.drive)
+cleanup_old_files(drive)
 ```
 
 ### File Search and Analysis
@@ -589,7 +725,7 @@ def format_size(size_bytes):
     return f"{size:.1f} {units[unit_index]}"
 
 # Usage
-analyze_drive_usage(user.drive)
+analyze_drive_usage(drive)
 ```
 
 ## API Reference

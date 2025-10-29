@@ -20,6 +20,11 @@ class AsyncGmailApiService:
         self._credentials = credentials
         self._timezone = timezone
 
+    def __del__(self):
+        """Cleanup ThreadPoolExecutor on deletion."""
+        if hasattr(self, '_executor'):
+            self._executor.shutdown(wait=False)
+
     def _service(self):
         return build("gmail", "v1", credentials=self._credentials)
 
@@ -160,7 +165,7 @@ class AsyncGmailApiService:
             ).execute()
         )
 
-        return asyncio.run(self.get_email(result['message']['id']))
+        return await self.get_email(result['message']['id'])
 
     async def batch_get_emails(self, message_ids: List[str]) -> List["EmailMessage"]:
         tasks = []
@@ -188,7 +193,7 @@ class AsyncGmailApiService:
             attachment_paths: Optional[List[str]] = None,
     ) -> EmailMessage:
         if isinstance(original_email, str):
-            original_email = self.get_email(original_email)
+            original_email = await self.get_email(original_email)
 
         if original_email.is_from('me'):
             to = original_email.get_recipient_emails()
@@ -216,7 +221,7 @@ class AsyncGmailApiService:
     ) -> EmailMessage:
 
         if isinstance(original_email, str):
-            original_email = self.get_email(original_email)
+            original_email = await self.get_email(original_email)
 
         subject = f"Fwd: {original_email.subject}" if original_email.subject else "Fwd:"
 

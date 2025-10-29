@@ -32,6 +32,11 @@ class AsyncDriveApiService:
         self._credentials = credentials
         self._timezone = timezone
 
+    def __del__(self):
+        """Cleanup ThreadPoolExecutor on deletion."""
+        if hasattr(self, '_executor'):
+            self._executor.shutdown(wait=False)
+
     def _service(self):
         return build("drive", "v3", credentials=self._credentials)
 
@@ -172,7 +177,7 @@ class AsyncDriveApiService:
         download_folder.mkdir(parents=True, exist_ok=True)
 
         if isinstance(file, str):
-            file = self.get(file)
+            file = await self.get(file)
 
         if not file_name:
             file_name = file.name
@@ -184,7 +189,7 @@ class AsyncDriveApiService:
 
     async def get_file_payload(self, file: DriveFile | str) -> bytes:
         if isinstance(file, str):
-            file = self.get(file)
+            file = await self.get(file)
 
         def _download():
             content_io = io.BytesIO()
@@ -392,7 +397,7 @@ class AsyncDriveApiService:
             remove_from_current_parents: bool = True
     ) -> DriveItem:
         if isinstance(item, str):
-            item = self.get(item)
+            item = await self.get(item)
         if isinstance(target_folder, DriveFolder):
             target_folder = target_folder.folder_id
 
@@ -416,7 +421,7 @@ class AsyncDriveApiService:
 
     async def get_parent_folder(self, item: DriveItem | str) -> Optional[DriveFolder]:
         if isinstance(item, str):
-            item = self.get(item)
+            item = await self.get(item)
 
         parent_id = item.get_parent_folder_id()
         if not parent_id:
@@ -557,7 +562,7 @@ class AsyncDriveApiService:
             include_files: bool = True
     ) -> Dict[str, Any]:
         if isinstance(folder, str):
-            folder = self.get(folder)
+            folder = await self.get(folder)
 
         async def _build_tree_recursive(current_folder: DriveFolder, current_depth: int) -> Dict[str, Any]:
             node = {
@@ -613,7 +618,7 @@ class AsyncDriveApiService:
             _prefix: str = ""
     ) -> None:
         if isinstance(folder, str):
-            folder = self.get(folder)
+            folder = await self.get(folder)
 
         if _current_depth == 0:
             print(f"📁 {folder.name}/")

@@ -1,23 +1,26 @@
 # Tasks Service Package
 
-A comprehensive, user-centric Google Tasks client library that provides clean, intuitive access to task management operations through the Google API. This package enables you to create, organize, search, and manage tasks programmatically with full OAuth2 authentication support.
+A comprehensive Google Tasks client library that provides clean, intuitive access to task management operations through the Google API. This package enables you to create, organize, search, and manage tasks programmatically with both synchronous and asynchronous support.
 
 ## Table of Contents
 
 - [Overview](#overview)
 - [Quick Start](#quick-start)
+  - [Synchronous Usage](#synchronous-usage)
+  - [Asynchronous Usage](#asynchronous-usage)
 - [Core Components](#core-components)
 - [Task Operations](#task-operations)
 - [Query Builder](#query-builder)
 - [Task List Management](#task-list-management)
 - [Batch Operations](#batch-operations)
+- [Async API](#async-api)
 - [Error Handling](#error-handling)
 - [Examples](#examples)
 - [API Reference](#api-reference)
 
 ## Overview
 
-The Tasks service package follows a user-centric design pattern where each user gets their own client instance with OAuth credentials. This enables multi-user scenarios and maintains proper authentication isolation.
+The Tasks service package provides both synchronous and asynchronous APIs for Google Tasks operations, with proper OAuth2 authentication and timezone support.
 
 ### Key Features
 
@@ -25,24 +28,29 @@ The Tasks service package follows a user-centric design pattern where each user 
 - **Powerful Query Builder**: Fluent API for complex task searches and filtering
 - **Task List Operations**: Create and manage multiple task lists
 - **Date-Smart Filtering**: Intelligent date handling with timezone support
-- **Batch Operations**: Efficient bulk task operations
+- **Batch Operations**: Efficient bulk task operations with concurrent async support
+- **Async/Await Support**: Full async implementation for high-performance applications
 - **Hierarchical Tasks**: Support for subtasks and task organization
 - **Security First**: Built-in validation and secure handling of credentials
 
 ## Quick Start
 
-```python
-from google_client.user_client import UserClient
+### Synchronous Usage
 
-# Initialize user client with OAuth credentials
-user = UserClient.from_file(
-    token_file="user_token.json",
-    credentials_file="credentials.json",
-    scopes=["https://www.googleapis.com/auth/tasks"]
-)
+```python
+from google_client.api_service import APIServiceLayer
+from datetime import date
+import json
+
+# Load user credentials
+with open('user_token.json', 'r') as f:
+    user_info = json.load(f)
+
+# Initialize API service layer
+api_service = APIServiceLayer(user_info, timezone='America/New_York')
 
 # Access Tasks service
-tasks = user.tasks
+tasks = api_service.tasks
 
 # Create a simple task
 task = tasks.create_task(
@@ -61,15 +69,58 @@ urgent_tasks = (tasks.query()
 print(f"Found {len(urgent_tasks)} urgent tasks")
 ```
 
+### Asynchronous Usage
+
+```python
+import asyncio
+from google_client.api_service import APIServiceLayer
+from datetime import date
+import json
+
+async def main():
+    # Load user credentials
+    with open('user_token.json', 'r') as f:
+        user_info = json.load(f)
+
+    # Initialize API service layer
+    api_service = APIServiceLayer(user_info, timezone='America/New_York')
+
+    # Access async Tasks service
+    tasks = api_service.async_tasks
+
+    # Create a simple task (async)
+    task = await tasks.create_task(
+        title="Complete project proposal",
+        notes="Include budget and timeline",
+        due=date(2024, 12, 31)
+    )
+
+    # Search for tasks (async)
+    urgent_tasks = await (tasks.query()
+        .due_today()
+        .show_completed(False)
+        .limit(10)
+        .execute())
+
+    # Batch get tasks concurrently
+    task_ids = [t.task_id for t in urgent_tasks]
+    tasks_detail = await tasks.batch_get_tasks("@default", task_ids)
+
+    print(f"Found {len(urgent_tasks)} urgent tasks")
+
+# Run async code
+asyncio.run(main())
+```
+
 ## Core Components
 
 ### TasksApiService
 
-The main service class that provides all Google Tasks operations:
+The main synchronous service class that provides all Google Tasks operations:
 
 ```python
-# Access through user client
-tasks = user.tasks
+# Access through APIServiceLayer
+tasks = api_service.tasks
 
 # Available operations
 all_tasks = tasks.list_tasks()
@@ -368,12 +419,97 @@ default_tasks = tasks.batch_create_tasks(default_tasks_data)
 print(f"Created {len(created_tasks)} tasks in batch")
 ```
 
+## Async API
+
+All Tasks operations are available in async versions for high-performance applications. The async API provides true concurrent operations using Python's `async`/`await` syntax.
+
+### Accessing Async Tasks
+
+```python
+from google_client.api_service import APIServiceLayer
+import asyncio
+
+# Access async version
+api_service = APIServiceLayer(user_info, timezone='America/New_York')
+async_tasks = api_service.async_tasks
+```
+
+### Async Examples
+
+```python
+import asyncio
+from datetime import date
+
+async def tasks_operations():
+    # All sync methods have async equivalents
+    task = await async_tasks.create_task(
+        title="Review pull request",
+        notes="Check for code quality",
+        due=date.today()
+    )
+
+    # List tasks
+    all_tasks = await async_tasks.list_tasks(show_completed=True)
+
+    # Mark tasks as complete concurrently
+    task_ids = [t.task_id for t in all_tasks[:5]]
+    for task_id in task_ids:
+        await async_tasks.mark_completed(task_id)
+
+    # Async query builder
+    urgent = await (async_tasks.query()
+        .due_today()
+        .show_completed(False)
+        .execute())
+
+    # Batch operations
+    tasks_data = [
+        {"title": "Task 1", "notes": "Description 1"},
+        {"title": "Task 2", "notes": "Description 2"},
+        {"title": "Task 3", "notes": "Description 3"}
+    ]
+    created_tasks = await async_tasks.batch_create_tasks(tasks_data)
+
+asyncio.run(tasks_operations())
+```
+
+### Performance Benefits
+
+Async operations shine when creating or updating multiple tasks:
+
+```python
+import time
+
+# Sync: Sequential (slower)
+start = time.time()
+for task_data in tasks_data[:20]:
+    tasks.create_task(**task_data)
+print(f"Sync: {time.time() - start:.2f}s")  # ~5-10 seconds
+
+# Async: Concurrent (faster)
+start = time.time()
+await async_tasks.batch_create_tasks(tasks_data[:20])
+print(f"Async: {time.time() - start:.2f}s")  # ~0.5-1 second
+```
+
+### Async API Methods
+
+All synchronous methods have async equivalents:
+- `async_tasks.list_tasks()` → `await async_tasks.list_tasks()`
+- `async_tasks.get_task()` → `await async_tasks.get_task()`
+- `async_tasks.create_task()` → `await async_tasks.create_task()`
+- `async_tasks.update_task()` → `await async_tasks.update_task()`
+- `async_tasks.delete_task()` → `await async_tasks.delete_task()`
+- `async_tasks.mark_completed()` → `await async_tasks.mark_completed()`
+- `async_tasks.batch_get_tasks()` → `await async_tasks.batch_get_tasks()`
+- And all other methods...
+
 ## Error Handling
 
 The Tasks service includes comprehensive error handling:
 
 ```python
-from google_api_client.services.tasks.exceptions import (
+from google_client.services.tasks.exceptions import (
     TasksError,
     TasksNotFoundError,
     TasksPermissionError,
@@ -513,7 +649,7 @@ def analyze_productivity(tasks):
             print(f"- {task.title} ({days_overdue} days overdue)")
 
 # Usage
-analyze_productivity(user.tasks)
+analyze_productivity(tasks)
 ```
 
 ### Task Cleanup and Organization
@@ -528,13 +664,13 @@ def cleanup_completed_tasks(tasks):
         .execute())
     
     print(f"Found {len(old_completed)} old completed tasks")
-    
+
     # Option to delete (implement with caution)
-    for task_ in old_completd:
-        task.delete_task(task_)
+    for task_ in old_completed:
+        tasks.delete_task(task_)
 
 # Usage
-cleanup_completed_tasks(user.tasks)
+cleanup_completed_tasks(tasks)
 ```
 
 ## API Reference
