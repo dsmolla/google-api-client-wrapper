@@ -1,5 +1,6 @@
 from datetime import date, datetime, timedelta
 from typing import Optional
+
 from pydantic import BaseModel, Field
 
 
@@ -40,7 +41,7 @@ class Task(BaseModel):
     status: Optional[str] = Field("needsAction", description="Status of the task ('needsAction' or 'completed')")
     due: Optional[date] = Field(None, description="Due date of the task")
     completed: Optional[date] = Field(None, description="Completion date of the task")
-    updated: Optional[date] = Field(None, description="Last modification time")
+    updated: Optional[datetime] = Field(None, description="Last modification time")
     parent: Optional[str] = Field(None, description="Parent task identifier")
     position: Optional[str] = Field(None, description="Position in the task list")
     task_list_id: Optional[str] = Field(None, description="ID of the task list this task belongs to")

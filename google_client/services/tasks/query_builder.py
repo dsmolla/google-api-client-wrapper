@@ -1,10 +1,11 @@
-from datetime import datetime, date, timedelta
-from typing import Optional, List, TYPE_CHECKING
-from .constants import MAX_RESULTS_LIMIT, DEFAULT_MAX_RESULTS, DEFAULT_TASK_LIST_ID
+from datetime import datetime, timedelta
+from typing import Optional, List
 
-if TYPE_CHECKING:
-    from .types import Task
-    from .api_service import TasksApiService
+from google_client.utils.datetime import current_datetime
+from .api_service import TasksApiService
+from .async_api_service import AsyncTasksApiService
+from .constants import DEFAULT_TASK_LIST_ID
+from .types import Task
 
 
 class TaskQueryBuilder:
@@ -21,9 +22,10 @@ class TaskQueryBuilder:
             .execute())
     """
 
-    def __init__(self, api_service: "TasksApiService"):
+    def __init__(self, api_service: TasksApiService | AsyncTasksApiService, timezone: str):
         self._api_service = api_service
-        self._max_results: Optional[int] = DEFAULT_MAX_RESULTS
+        self._timezone = timezone
+        self._max_results: Optional[int] = 100
         self._completed_max: Optional[datetime] = None
         self._completed_min: Optional[datetime] = None
         self._due_max: Optional[datetime] = None
@@ -40,8 +42,8 @@ class TaskQueryBuilder:
         Returns:
             Self for method chaining
         """
-        if count < 1 or count > MAX_RESULTS_LIMIT:
-            raise ValueError(f"Limit must be between 1 and {MAX_RESULTS_LIMIT}")
+        if count < 1:
+            raise ValueError(f"Limit must be between at least 1")
         self._max_results = count
         return self
 
@@ -152,14 +154,13 @@ class TaskQueryBuilder:
         self._task_list_id = task_list_id
         return self
 
-    # Convenience date methods
     def due_today(self) -> "TaskQueryBuilder":
         """
         Filter to tasks due today.
         Returns:
             Self for method chaining
         """
-        today = date.today()
+        today = current_datetime(self._timezone).date()
         start_of_day = datetime.combine(today, datetime.min.time())
         end_of_day = start_of_day + timedelta(days=1)
         return self.due_in_range(start_of_day, end_of_day)
@@ -170,7 +171,7 @@ class TaskQueryBuilder:
         Returns:
             Self for method chaining
         """
-        tomorrow = date.today() + timedelta(days=1)
+        tomorrow = current_datetime(self._timezone).date() + timedelta(days=1)
         start_of_day = datetime.combine(tomorrow, datetime.min.time())
         end_of_day = start_of_day + timedelta(days=1)
         return self.due_in_range(start_of_day, end_of_day)
@@ -181,7 +182,7 @@ class TaskQueryBuilder:
         Returns:
             Self for method chaining
         """
-        today = date.today()
+        today = current_datetime(self._timezone).date()
         days_since_monday = today.weekday()
         monday = today - timedelta(days=days_since_monday)
         sunday = monday + timedelta(days=6)
@@ -196,7 +197,7 @@ class TaskQueryBuilder:
         Returns:
             Self for method chaining
         """
-        today = date.today()
+        today = current_datetime(self._timezone).date()
         days_since_monday = today.weekday()
         next_monday = today + timedelta(days=(7 - days_since_monday))
         next_sunday = next_monday + timedelta(days=6)
@@ -216,7 +217,7 @@ class TaskQueryBuilder:
         if days < 1:
             raise ValueError("Days must be positive")
 
-        today = date.today()
+        today = current_datetime(self._timezone).date()
         start = datetime.combine(today, datetime.min.time())
         end = datetime.combine(today + timedelta(days=days + 1), datetime.min.time())
         return self.due_in_range(start, end)
@@ -227,7 +228,7 @@ class TaskQueryBuilder:
         Returns:
             Self for method chaining
         """
-        today = datetime.combine(date.today(), datetime.min.time())
+        today = datetime.combine(current_datetime(self._timezone).date(), datetime.min.time())
         return self.due_before(today).show_completed(False)
 
     def completed_today(self) -> "TaskQueryBuilder":
@@ -236,7 +237,7 @@ class TaskQueryBuilder:
         Returns:
             Self for method chaining
         """
-        today = date.today()
+        today = current_datetime(self._timezone).date()
         start_of_day = datetime.combine(today, datetime.min.time())
         end_of_day = start_of_day + timedelta(days=1)
         return self.completed_in_range(start_of_day, end_of_day)
@@ -247,7 +248,7 @@ class TaskQueryBuilder:
         Returns:
             Self for method chaining
         """
-        today = date.today()
+        today = current_datetime(self._timezone).date()
         days_since_monday = today.weekday()
         monday = today - timedelta(days=days_since_monday)
         sunday = monday + timedelta(days=6)
@@ -267,7 +268,7 @@ class TaskQueryBuilder:
         if days < 1:
             raise ValueError("Days must be positive")
 
-        today = date.today()
+        today = current_datetime(self._timezone).date()
         start = datetime.combine(today - timedelta(days=days), datetime.min.time())
         end = datetime.combine(today, datetime.max.time())
         return self.completed_in_range(start, end)
@@ -290,7 +291,6 @@ class TaskQueryBuilder:
             due_min=self._due_min,
             due_max=self._due_max,
             show_completed=self._show_completed,
-            show_hidden=self._show_hidden
         )
 
         return tasks
@@ -319,6 +319,3 @@ class TaskQueryBuilder:
             True if at least one task matches, False otherwise
         """
         return self.limit(1).count() > 0
-
-    def __repr__(self):
-        return f"TaskQueryBuilder(task_list_id='{self._task_list_id}', limit={self._max_results})"

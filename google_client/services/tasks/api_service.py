@@ -1,18 +1,13 @@
-from datetime import datetime, date
+from datetime import datetime, date, timedelta
 from typing import Optional, List, Any, Dict, Union
 
-from googleapiclient.errors import HttpError
+from google.auth.credentials import Credentials
+from googleapiclient.discovery import build
 
-from .types import Task, TaskList
 from . import utils
-from .constants import (
-    DEFAULT_MAX_RESULTS, MAX_RESULTS_LIMIT, DEFAULT_TASK_LIST_ID,
-    TASK_STATUS_COMPLETED, TASK_STATUS_NEEDS_ACTION
-)
-from .exceptions import (
-    TasksError, TasksPermissionError, TasksNotFoundError,
-    InvalidTaskDataError, TaskMoveError
-)
+from .constants import DEFAULT_TASK_LIST_ID, TASK_STATUS_COMPLETED, TASK_STATUS_NEEDS_ACTION
+from .types import Task, TaskList
+from ...utils.datetime import datetime_to_iso
 
 
 class TasksApiService:
@@ -21,14 +16,16 @@ class TasksApiService:
     Contains all Tasks API functionality that was removed from dataclasses.
     """
 
-    def __init__(self, service: Any):
+    def __init__(self, credentials: Credentials, timezone: str):
         """
         Initialize Tasks service.
 
         Args:
-            service: The Tasks API service instance
+            credentials: Google API credentials
+            timezone: User's timezone for date/time operations (e.g., 'America/New_York')
         """
-        self._service = service
+        self._service = build("tasks", "v1", credentials=credentials)
+        self._timezone = timezone
 
     def query(self):
         """
@@ -46,19 +43,19 @@ class TasksApiService:
                 .execute())
         """
         from .query_builder import TaskQueryBuilder
-        return TaskQueryBuilder(self)
+        return TaskQueryBuilder(self, self._timezone)
 
-    # Task Operations
     def list_tasks(
             self,
             task_list_id: str = DEFAULT_TASK_LIST_ID,
-            max_results: Optional[int] = DEFAULT_MAX_RESULTS,
-            completed_min: Optional[datetime] = None,
-            completed_max: Optional[datetime] = None,
-            due_min: Optional[datetime] = None,
-            due_max: Optional[datetime] = None,
-            show_completed: Optional[bool] = None,
-            show_hidden: Optional[bool] = None
+            max_results: Optional[int] = 100,
+            completed_min: Optional[date] = None,
+            completed_max: Optional[date] = None,
+            due_min: Optional[date] = None,
+            due_max: Optional[date] = None,
+            show_completed: Optional[bool] = False,
+            show_assigned: Optional[bool] = True,
+            show_hidden: Optional[bool] = False,
     ) -> List[Task]:
         """
         Fetches a list of tasks from Google Tasks with optional filtering.
@@ -71,59 +68,45 @@ class TasksApiService:
             due_min: Lower bound for a task's due date (RFC 3339).
             due_max: Upper bound for a task's due date (RFC 3339).
             show_completed: Flag indicating whether completed tasks are returned.
-            show_hidden: Flag indicating whether hidden tasks are returned.
 
         Returns:
             A list of Task objects representing the tasks found.
         """
-        # Input validation
-        if max_results and (max_results < 1 or max_results > MAX_RESULTS_LIMIT):
-            raise ValueError(f"max_results must be between 1 and {MAX_RESULTS_LIMIT}")
+        if max_results < 1:
+            raise ValueError(f"max_results must be at least 1")
 
-        try:
-            # Build request parameters
-            request_params = {
-                'tasklist': task_list_id,
-                'maxResults': max_results
-            }
+        request_params = {
+            'tasklist': task_list_id,
+            'maxResults': max_results,
+            'showCompleted': show_completed,
+            'showHidden': show_hidden,
+            'showAssigned': show_assigned,
+        }
 
-            # Add optional filters
-            if completed_min:
-                request_params['completedMin'] = completed_min.isoformat() + 'Z'
-            if completed_max:
-                request_params['completedMax'] = completed_max.isoformat() + 'Z'
-            if due_min:
-                request_params['dueMin'] = due_min.isoformat() + 'Z'
-            if due_max:
-                request_params['dueMax'] = due_max.isoformat() + 'Z'
-            if show_completed is not None:
-                request_params['showCompleted'] = show_completed
-            if show_hidden is not None:
-                request_params['showHidden'] = show_hidden
+        if completed_min:
+            completed_min = datetime.combine(completed_min, datetime.min.time())
+            request_params['completedMin'] = completed_min.isoformat() + 'Z'
+        if completed_max:
+            completed_max = datetime.combine(completed_max, datetime.min.time())
+            request_params['completedMax'] = completed_max.isoformat() + 'Z'
+        if due_min:
+            due_min = datetime.combine(due_min, datetime.min.time())
+            request_params['dueMin'] = due_min.isoformat() + 'Z'
+        if due_max:
+            due_max = datetime.combine(due_max, datetime.min.time())
+            request_params['dueMax'] = due_max.isoformat() + 'Z'
+        if show_completed:
+            request_params['showHidden'] = True
 
-            # Make API call
+        result = self._service.tasks().list(**request_params).execute()
+        tasks = [utils.from_google_task(task, task_list_id, self._timezone) for task in result.get('items', [])]
+        while result.get('nextPageToken') and len(tasks) < max_results:
+            request_params['maxResults'] = max_results - len(tasks)
             result = self._service.tasks().list(**request_params).execute()
-            tasks_data = result.get('items', [])
+            tasks.extend(
+                [utils.from_google_task(task, task_list_id, self._timezone) for task in result.get('items', [])])
 
-            # Parse tasks
-            tasks = []
-            for task_data in tasks_data:
-                try:
-                    tasks.append(utils.from_google_task(task_data, task_list_id))
-                except Exception as e:
-                    pass
-
-            return tasks
-
-        except HttpError as e:
-            if e.resp.status == 403:
-                raise TasksPermissionError(f"Permission denied: {e}")
-            elif e.resp.status == 404:
-                raise TasksNotFoundError(f"Task list not found: {task_list_id}")
-            else:
-                raise TasksError(f"Tasks API error listing tasks: {e}")
-        except Exception as e:
-            raise TasksError(f"Unexpected error listing tasks: {e}")
+        return tasks
 
     def get_task(self, task_id: str, task_list_id: str = DEFAULT_TASK_LIST_ID) -> Task:
         """
@@ -136,24 +119,12 @@ class TasksApiService:
         Returns:
             A Task object representing the task with the specified ID.
         """
+        task_data = self._service.tasks().get(
+            tasklist=task_list_id,
+            task=task_id
+        ).execute()
 
-        try:
-            task_data = self._service.tasks().get(
-                tasklist=task_list_id,
-                task=task_id
-            ).execute()
-
-            return utils.from_google_task(task_data, task_list_id)
-
-        except HttpError as e:
-            if e.resp.status == 404:
-                raise TasksNotFoundError(f"Task not found: {task_id}")
-            elif e.resp.status == 403:
-                raise TasksPermissionError(f"Permission denied accessing task: {e}")
-            else:
-                raise TasksError(f"Tasks API error getting task {task_id}: {e}")
-        except Exception as e:
-            raise TasksError(f"Unexpected error getting task: {e}")
+        return utils.from_google_task(task_data, task_list_id, self._timezone)
 
     def create_task(
             self,
@@ -178,37 +149,18 @@ class TasksApiService:
         Returns:
             A Task object representing the created task.
         """
+        task_body = utils.create_task_body(
+            title=title,
+            notes=notes,
+            due=due,
+            parent=parent,
+            position=position
+        )
 
-        try:
-            # Create task body using utils
-            task_body = utils.create_task_body(
-                title=title,
-                notes=notes,
-                due=due,
-                parent=parent,
-                position=position
-            )
+        created_task = self._service.tasks().insert(tasklist=task_list_id, body=task_body).execute()
 
-            # Make API call
-            created_task = self._service.tasks().insert(
-                tasklist=task_list_id,
-                body=task_body
-            ).execute()
-
-            task = utils.from_google_task(created_task, task_list_id)
-            return task
-
-        except HttpError as e:
-            if e.resp.status == 403:
-                raise TasksPermissionError(f"Permission denied creating task: {e}")
-            elif e.resp.status == 404:
-                raise TasksNotFoundError(f"Task list not found: {task_list_id}")
-            else:
-                raise TasksError(f"Tasks API error creating task: {e}")
-        except ValueError as e:
-            raise InvalidTaskDataError(f"Invalid task data: {e}")
-        except Exception as e:
-            raise TasksError(f"Unexpected error creating task: {e}")
+        task = utils.from_google_task(created_task, task_list_id, self._timezone)
+        return task
 
     def update_task(self, task: Task, task_list_id: str = DEFAULT_TASK_LIST_ID) -> Task:
         """
@@ -221,32 +173,15 @@ class TasksApiService:
         Returns:
             A Task object representing the updated task.
         """
+        task_body = task.to_dict()
+        updated_task = self._service.tasks().update(
+            tasklist=task_list_id,
+            task=task.task_id,
+            body=task_body
+        ).execute()
 
-        try:
-            # Build update body
-            task_body = task.to_dict()
-
-            # Make API call
-            updated_task = self._service.tasks().update(
-                tasklist=task_list_id,
-                task=task.task_id,
-                body=task_body
-            ).execute()
-
-            task = utils.from_google_task(updated_task, task_list_id)
-            return task
-
-        except HttpError as e:
-            if e.resp.status == 404:
-                raise TasksNotFoundError(f"Task not found: {task.task_id}")
-            elif e.resp.status == 403:
-                raise TasksPermissionError(f"Permission denied updating task: {e}")
-            else:
-                raise TasksError(f"Tasks API error updating task {task.task_id}: {e}")
-        except ValueError as e:
-            raise InvalidTaskDataError(f"Invalid task data: {e}")
-        except Exception as e:
-            raise TasksError(f"Unexpected error updating task: {e}")
+        task = utils.from_google_task(updated_task, task_list_id, self._timezone)
+        return task
 
     def delete_task(self, task: Union[Task, str], task_list_id: str = DEFAULT_TASK_LIST_ID) -> bool:
         """
@@ -260,27 +195,14 @@ class TasksApiService:
             True if the operation was successful.
         """
 
-        try:
-            if isinstance(task, Task):
-                task_id = task.task_id
-            elif isinstance(task, str):
-                task_id = task
-            self._service.tasks().delete(
-                tasklist=task_list_id,
-                task=task_id
-            ).execute()
+        if isinstance(task, Task):
+            task = task.task_id
+        self._service.tasks().delete(
+            tasklist=task_list_id,
+            task=task
+        ).execute()
 
-            return True
-
-        except HttpError as e:
-            if e.resp.status == 404:
-                raise TasksNotFoundError(f"Task not found: {task_id}")
-            elif e.resp.status == 403:
-                raise TasksPermissionError(f"Permission denied deleting task: {e}")
-            else:
-                raise TasksError(f"Tasks API error deleting task {task_id}: {e}")
-        except Exception as e:
-            raise TasksError(f"Unexpected error deleting task: {e}")
+        return True
 
     def move_task(
             self,
@@ -301,31 +223,19 @@ class TasksApiService:
         Returns:
             A Task object representing the moved task.
         """
+        request_params = {
+            'tasklist': task_list_id,
+            'task': task.task_id
+        }
+        if parent:
+            request_params['parent'] = parent
+        if previous:
+            request_params['previous'] = previous
 
-        try:
-            request_params = {
-                'tasklist': task_list_id,
-                'task': task.task_id
-            }
-            if parent:
-                request_params['parent'] = parent
-            if previous:
-                request_params['previous'] = previous
+        moved_task = self._service.tasks().move(**request_params).execute()
 
-            moved_task = self._service.tasks().move(**request_params).execute()
-
-            task = utils.from_google_task(moved_task, task_list_id)
-            return task
-
-        except HttpError as e:
-            if e.resp.status == 404:
-                raise TasksNotFoundError(f"Task not found: {task.task_id}")
-            elif e.resp.status == 403:
-                raise TasksPermissionError(f"Permission denied moving task: {e}")
-            else:
-                raise TaskMoveError(f"Tasks API error moving task {task.task_id}: {e}")
-        except Exception as e:
-            raise TaskMoveError(f"Unexpected error moving task: {e}")
+        task = utils.from_google_task(moved_task, task_list_id, self._timezone)
+        return task
 
     def mark_completed(self, task: Union[str, Task], task_list_id: str = DEFAULT_TASK_LIST_ID) -> Task:
         """
@@ -361,7 +271,6 @@ class TasksApiService:
         task.status = TASK_STATUS_NEEDS_ACTION
         return self.update_task(task=task, task_list_id=task_list_id)
 
-    # Task List Operations
     def list_task_lists(self) -> List[TaskList]:
         """
         Fetches a list of task lists from Google Tasks.
@@ -370,27 +279,9 @@ class TasksApiService:
             A list of TaskList objects representing the task lists found.
         """
 
-        try:
-            result = self._service.tasklists().list().execute()
-            task_lists_data = result.get('items', [])
-
-            # Parse task lists
-            task_lists = []
-            for task_list_data in task_lists_data:
-                try:
-                    task_lists.append(utils.from_google_task_list(task_list_data))
-                except Exception as e:
-                    pass
-
-            return task_lists
-
-        except HttpError as e:
-            if e.resp.status == 403:
-                raise TasksPermissionError(f"Permission denied: {e}")
-            else:
-                raise TasksError(f"Tasks API error listing task lists: {e}")
-        except Exception as e:
-            raise TasksError(f"Unexpected error listing task lists: {e}")
+        result = self._service.tasklists().list().execute()
+        task_lists = [utils.from_google_task_list(task_list, self._timezone) for task_list in result.get('items', [])]
+        return task_lists
 
     def get_task_list(self, task_list_id: str) -> TaskList:
         """
@@ -402,23 +293,9 @@ class TasksApiService:
         Returns:
             A TaskList object representing the task list with the specified ID.
         """
+        task_list_data = self._service.tasklists().get(tasklist=task_list_id).execute()
 
-        try:
-            task_list_data = self._service.tasklists().get(
-                tasklist=task_list_id
-            ).execute()
-
-            return utils.from_google_task_list(task_list_data)
-
-        except HttpError as e:
-            if e.resp.status == 404:
-                raise TasksNotFoundError(f"Task list not found: {task_list_id}")
-            elif e.resp.status == 403:
-                raise TasksPermissionError(f"Permission denied accessing task list: {e}")
-            else:
-                raise TasksError(f"Tasks API error getting task list {task_list_id}: {e}")
-        except Exception as e:
-            raise TasksError(f"Unexpected error getting task list: {e}")
+        return utils.from_google_task_list(task_list_data, self._timezone)
 
     def create_task_list(self, title: str) -> TaskList:
         """
@@ -430,28 +307,11 @@ class TasksApiService:
         Returns:
             A TaskList object representing the created task list.
         """
+        task_list_body = utils.create_task_list_body(title)
+        created_task_list = self._service.tasklists().insert(body=task_list_body).execute()
 
-        try:
-            # Create task list body using utils
-            task_list_body = utils.create_task_list_body(title)
-
-            # Make API call
-            created_task_list = self._service.tasklists().insert(
-                body=task_list_body
-            ).execute()
-
-            task_list = utils.from_google_task_list(created_task_list)
-            return task_list
-
-        except HttpError as e:
-            if e.resp.status == 403:
-                raise TasksPermissionError(f"Permission denied creating task list: {e}")
-            else:
-                raise TasksError(f"Tasks API error creating task list: {e}")
-        except ValueError as e:
-            raise InvalidTaskDataError(f"Invalid task list data: {e}")
-        except Exception as e:
-            raise TasksError(f"Unexpected error creating task list: {e}")
+        task_list = utils.from_google_task_list(created_task_list, self._timezone)
+        return task_list
 
     def update_task_list(self, task_list: TaskList, title: str) -> TaskList:
         """
@@ -464,33 +324,17 @@ class TasksApiService:
         Returns:
             A TaskList object representing the updated task list.
         """
+        task_list_body = utils.create_task_list_body(title)
+        task_list_body['id'] = task_list.task_list_id
 
-        try:
-            # Create update body
-            task_list_body = utils.create_task_list_body(title)
-            task_list_body['id'] = task_list.task_list_id
+        updated_task_list = self._service.tasklists().update(
+            tasklist=task_list.task_list_id,
+            body=task_list_body
+        ).execute()
 
-            # Make API call
-            updated_task_list = self._service.tasklists().update(
-                tasklist=task_list.task_list_id,
-                body=task_list_body
-            ).execute()
-
-            task_list.title = title
-            task_list = utils.from_google_task_list(updated_task_list)
-            return task_list
-
-        except HttpError as e:
-            if e.resp.status == 404:
-                raise TasksNotFoundError(f"Task list not found: {task_list.task_list_id}")
-            elif e.resp.status == 403:
-                raise TasksPermissionError(f"Permission denied updating task list: {e}")
-            else:
-                raise TasksError(f"Tasks API error updating task list {task_list.task_list_id}: {e}")
-        except ValueError as e:
-            raise InvalidTaskDataError(f"Invalid task list data: {e}")
-        except Exception as e:
-            raise TasksError(f"Unexpected error updating task list: {e}")
+        task_list.title = title
+        task_list = utils.from_google_task_list(updated_task_list, self._timezone)
+        return task_list
 
     def delete_task_list(self, task_list: TaskList) -> bool:
         """
@@ -502,27 +346,12 @@ class TasksApiService:
         Returns:
             True if the operation was successful.
         """
+        self._service.tasklists().delete(
+            tasklist=task_list.task_list_id
+        ).execute()
 
-        try:
-            self._service.tasklists().delete(
-                tasklist=task_list.task_list_id
-            ).execute()
+        return True
 
-            return True
-
-        except HttpError as e:
-            if e.resp.status == 404:
-                raise TasksNotFoundError(f"Task list not found: {task_list.task_list_id}")
-            elif e.resp.status == 403:
-                raise TasksPermissionError(f"Permission denied deleting task list: {e}")
-            elif e.resp.status == 400:
-                raise TasksError(f"Cannot delete default task list: {task_list.task_list_id}")
-            else:
-                raise TasksError(f"Tasks API error deleting task list {task_list.task_list_id}: {e}")
-        except Exception as e:
-            raise TasksError(f"Unexpected error deleting task list: {e}")
-
-    # Batch Operations
     def batch_get_tasks(self, task_list_id: str, task_ids: List[str]) -> List[Task]:
         """
         Retrieves multiple tasks by their IDs.
@@ -535,17 +364,13 @@ class TasksApiService:
             List of Task objects.
         """
 
-        tasks = []
-        for task_id in task_ids:
-            try:
-                tasks.append(self.get_task(task_list_id, task_id))
-            except Exception as e:
-                pass
-
+        tasks = [self.get_task(task_list_id, task_id) for task_id in task_ids]
         return tasks
 
-    def batch_create_tasks(self, tasks_data: List[Dict[str, Any]], task_list_id: str = DEFAULT_TASK_LIST_ID) -> List[
-        Task]:
+    def batch_create_tasks(
+            self,
+            tasks_data: List[Dict[str, Any]],
+            task_list_id: str = DEFAULT_TASK_LIST_ID) -> List[Task]:
         """
         Creates multiple tasks.
 
@@ -557,11 +382,5 @@ class TasksApiService:
             List of created Task objects.
         """
 
-        created_tasks = []
-        for task_data in tasks_data:
-            try:
-                created_tasks.append(self.create_task(task_list_id=task_list_id, **task_data))
-            except Exception as e:
-                pass
-
+        created_tasks = [self.create_task(task_list_id=task_list_id, **task_data) for task_data in tasks_data]
         return created_tasks

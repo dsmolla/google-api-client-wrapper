@@ -1,6 +1,8 @@
 google-api-python-client~=2.163.0
-google-auth-httplib2
+google-auth-httplib2~=0.2.0
 google-auth-oauthlib~=1.2.1
 tzlocal~=5.3.1
 html2text~=2025.4.15
 pydantic~=2.11.7
+pytz~=2025.2
+aiofiles~=24.1.0

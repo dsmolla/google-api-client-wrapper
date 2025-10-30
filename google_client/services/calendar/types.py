@@ -1,10 +1,35 @@
 from datetime import datetime, date, time
 from typing import Optional, Dict, List, Any, Literal
+
 from pydantic import BaseModel, Field
 
-from google_client.utils.datetime import convert_datetime_to_readable, current_datetime_local_timezone, \
-    convert_datetime_to_local_timezone
+from google_client.utils.datetime import datetime_to_readable, current_datetime
 from google_client.utils.validation import is_valid_email
+
+
+class Calendar(BaseModel):
+    """
+    Represents a Calendar
+    """
+    id: str = Field(description="The ID of the calendar")
+    summary: Optional[str] = Field(None, description="The summary or name of the calendar")
+    description: Optional[str] = Field(None, description="The description of the calendar")
+    backgroundColor: Optional[str] = Field(None, description="The background color of the calendar")
+    foregroundColor: Optional[str] = Field(None, description="The foreground color of the calendar")
+    deleted: bool = Field(default=False, description="Whether the calendar is deleted")
+
+    def to_dict(self) -> dict:
+        return {
+            'id': self.id,
+            'summary': self.summary,
+            'description': self.description,
+            'backgroundColor': self.backgroundColor,
+            'foregroundColor': self.foregroundColor,
+            'deleted': self.deleted
+        }
+
+    def __str__(self) -> str:
+        return f"{self.summary} <{self.id}>"
 
 
 class Attendee(BaseModel):
@@ -59,6 +84,7 @@ class CalendarEvent(BaseModel):
     creator: Optional[str] = Field(None, description="The creator of the event")
     organizer: Optional[str] = Field(None, description="The organizer of the event")
     status: Optional[str] = Field("confirmed", description="The status of the event (confirmed, tentative, cancelled)")
+    timezone: Optional[str] = Field(None, description="The timezone of the Calendar/Event")
 
     def duration(self) -> Optional[int]:
         """
@@ -98,7 +124,7 @@ class CalendarEvent(BaseModel):
             True if the event is in the past, False otherwise.
         """
         if self.end:
-            return self.end < current_datetime_local_timezone()
+            return self.end < current_datetime(self.timezone)
         return False
 
     def is_upcoming(self) -> bool:
@@ -108,7 +134,7 @@ class CalendarEvent(BaseModel):
             True if the event is upcoming, False otherwise.
         """
         if self.start:
-            return self.start > current_datetime_local_timezone()
+            return self.start > current_datetime(self.timezone)
         return False
 
     def is_happening_now(self) -> bool:
@@ -119,7 +145,7 @@ class CalendarEvent(BaseModel):
         """
         if not self.start or not self.end:
             return False
-        now = current_datetime_local_timezone()
+        now = current_datetime(self.timezone)
         return self.start <= now <= self.end
 
     def conflicts_with(self, other: "CalendarEvent") -> bool:
@@ -177,7 +203,7 @@ class CalendarEvent(BaseModel):
         if self.location:
             event_dict["location"] = self.location
         if self.start:
-            event_dict["time"] = convert_datetime_to_readable(self.start, self.end)
+            event_dict["time"] = datetime_to_readable(self.start, self.end)
         if self.html_link:
             event_dict["htmlLink"] = self.html_link
         if self.recurrence:
@@ -201,7 +227,7 @@ class CalendarEvent(BaseModel):
             f"Summary: {self.summary!r}\n"
             f"Description: {self.description!r}\n"
             f"Location: {self.location!r}\n"
-            f"Time: {convert_datetime_to_readable(self.start, self.end)}\n"
+            f"Time: {datetime_to_readable(self.start, self.end)}\n"
             f"Link: {self.html_link!r}\n"
             f"Attendees: {', '.join(self.get_attendee_emails())}\n"
             f"Status: {self.status}\n"
@@ -254,10 +280,7 @@ class TimeSlot(BaseModel):
         return self.start <= time_point < self.end
 
     def __str__(self):
-        return convert_datetime_to_readable(
-            convert_datetime_to_local_timezone(self.start),
-            convert_datetime_to_local_timezone(self.end)
-        )
+        return datetime_to_readable(self.start, self.end)
 
 
 class FreeBusyResponse(BaseModel):
@@ -325,19 +348,15 @@ class FreeBusyResponse(BaseModel):
         Returns:
             List of TimeSlot objects representing available time slots
         """
-        from ...utils.datetime import current_datetime_local_timezone
 
         busy_periods = sorted(self.get_busy_periods(calendar_id), key=lambda x: x.start)
         free_slots = []
 
-        # Start from the beginning of the range or current time (whichever is later)
-        current_time = max(self.start, current_datetime_local_timezone())
-
         # Check time before first busy period
-        if busy_periods and current_time < busy_periods[0].start:
-            gap_duration = (busy_periods[0].start - current_time).total_seconds() / 60
+        if busy_periods and self.start < busy_periods[0].start:
+            gap_duration = (busy_periods[0].start - self.start).total_seconds() / 60
             if gap_duration >= duration_minutes:
-                free_slots.append(TimeSlot(start=current_time, end=busy_periods[0].start))
+                free_slots.append(TimeSlot(start=self.start, end=busy_periods[0].start))
 
         # Check gaps between busy periods
         for i in range(len(busy_periods) - 1):
@@ -355,11 +374,11 @@ class FreeBusyResponse(BaseModel):
                 gap_duration = (self.end - gap_start).total_seconds() / 60
                 if gap_duration >= duration_minutes:
                     free_slots.append(TimeSlot(start=gap_start, end=self.end))
-        elif current_time < self.end:
+        elif self.start < self.end:
             # No busy periods at all
-            gap_duration = (self.end - current_time).total_seconds() / 60
+            gap_duration = (self.end - self.start).total_seconds() / 60
             if gap_duration >= duration_minutes:
-                free_slots.append(TimeSlot(start=current_time, end=self.end))
+                free_slots.append(TimeSlot(start=self.start, end=self.end))
 
         return free_slots
 
@@ -371,4 +390,3 @@ class FreeBusyResponse(BaseModel):
             True if there were errors, False otherwise
         """
         return bool(self.errors)
-

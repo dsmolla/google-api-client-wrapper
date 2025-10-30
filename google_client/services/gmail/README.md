@@ -1,24 +1,27 @@
 # Gmail Service Package
 
-A comprehensive, user-centric Gmail client library that provides clean, intuitive access to Gmail operations through the Google API. This package enables you to send, receive, search, and manage emails programmatically with full OAuth2 authentication support.
+A comprehensive Gmail client library that provides clean, intuitive access to Gmail operations through the Google API. This package enables you to send, receive, search, and manage emails programmatically with both synchronous and asynchronous support.
 
 ## Table of Contents
 
 - [Overview](#overview)
 - [Quick Start](#quick-start)
+  - [Synchronous Usage](#synchronous-usage)
+  - [Asynchronous Usage](#asynchronous-usage)
 - [Core Components](#core-components)
 - [Email Operations](#email-operations)
 - [Query Builder](#query-builder)
 - [Threading Support](#threading-support)
 - [Label Management](#label-management)
 - [Attachment Handling](#attachment-handling)
+- [Async API](#async-api)
 - [Error Handling](#error-handling)
 - [Examples](#examples)
 - [API Reference](#api-reference)
 
 ## Overview
 
-The Gmail service package follows a user-centric design pattern where each user gets their own client instance with OAuth credentials. This enables multi-user scenarios and maintains proper authentication isolation.
+The Gmail service package provides both synchronous and asynchronous APIs for Gmail operations, with proper OAuth2 authentication and timezone support.
 
 ### Key Features
 
@@ -27,23 +30,27 @@ The Gmail service package follows a user-centric design pattern where each user 
 - **Thread Management**: Work with Gmail conversation threads
 - **Label Operations**: Create, modify, and manage Gmail labels
 - **Attachment Support**: Upload, download, and manage email attachments
-- **Batch Operations**: Efficient bulk email operations
+- **Batch Operations**: Efficient bulk email operations with concurrent async support
+- **Async/Await Support**: Full async implementation for high-performance applications
 - **Security First**: Built-in validation and secure handling of credentials
 
 ## Quick Start
 
-```python
-from google_client.user_client import UserClient
+### Synchronous Usage
 
-# Initialize user client with OAuth credentials
-user = UserClient.from_file(
-    token_file="user_token.json",
-    credentials_file="credentials.json",
-    scopes=["https://www.googleapis.com/auth/gmail.modify"]
-)
+```python
+from google_client.api_service import APIServiceLayer
+import json
+
+# Load user credentials
+with open('user_token.json', 'r') as f:
+    user_info = json.load(f)
+
+# Initialize API service layer
+api_service = APIServiceLayer(user_info, timezone='America/New_York')
 
 # Access Gmail service
-gmail = user.gmail
+gmail = api_service.gmail
 
 # Send a simple email
 gmail.send_email(
@@ -62,15 +69,57 @@ emails = (gmail.query()
 print(f"Found {len(emails)} emails")
 ```
 
+### Asynchronous Usage
+
+```python
+import asyncio
+from google_client.api_service import APIServiceLayer
+import json
+
+async def main():
+    # Load user credentials
+    with open('user_token.json', 'r') as f:
+        user_info = json.load(f)
+
+    # Initialize API service layer
+    api_service = APIServiceLayer(user_info, timezone='America/New_York')
+
+    # Access async Gmail service
+    gmail = api_service.async_gmail
+
+    # Send a simple email (async)
+    await gmail.send_email(
+        to=["recipient@example.com"],
+        subject="Hello from Gmail API",
+        body_text="This is a test email sent using the async Gmail API!"
+    )
+
+    # Search for emails (async)
+    emails = await (gmail.query()
+        .from_sender("important@company.com")
+        .with_subject("meeting")
+        .last_days(7)
+        .execute())
+
+    # Batch get emails concurrently (much faster!)
+    message_ids = await gmail.list_emails(max_results=50)
+    emails = await gmail.batch_get_emails(message_ids[:10])
+
+    print(f"Found {len(emails)} emails")
+
+# Run async code
+asyncio.run(main())
+```
+
 ## Core Components
 
 ### GmailApiService
 
-The main service class that provides all Gmail operations:
+The main synchronous service class that provides all Gmail operations:
 
 ```python
-# Access through user client
-gmail = user.gmail
+# Access through APIServiceLayer
+gmail = api_service.gmail
 
 # Available operations
 emails = gmail.list_emails()
@@ -476,12 +525,89 @@ sent_emails = gmail.batch_send_emails(email_data_list)
 print(f"Sent {len(sent_emails)} emails in batch")
 ```
 
+## Async API
+
+All Gmail operations are available in async versions for high-performance applications. The async API provides true concurrent operations using Python's `async`/`await` syntax.
+
+### Accessing Async Gmail
+
+```python
+from google_client.api_service import APIServiceLayer
+import asyncio
+
+# Access async version
+api_service = APIServiceLayer(user_info, timezone='America/New_York')
+async_gmail = api_service.async_gmail
+```
+
+### Async Examples
+
+```python
+import asyncio
+
+async def gmail_operations():
+    # All sync methods have async equivalents
+    email = await async_gmail.get_email(message_id)
+    await async_gmail.send_email(
+        to=["user@example.com"],
+        subject="Test",
+        body_text="Hello!"
+    )
+
+    # Concurrent operations are much faster
+    message_ids = await async_gmail.list_emails(max_results=100)
+
+    # Batch get emails concurrently (10x-100x faster!)
+    emails = await async_gmail.batch_get_emails(message_ids[:50])
+
+    # Async query builder
+    emails = await (async_gmail.query()
+        .from_sender("boss@company.com")
+        .unread()
+        .last_days(30)
+        .execute())
+
+asyncio.run(gmail_operations())
+```
+
+### Performance Benefits
+
+Async operations shine when fetching multiple emails:
+
+```python
+import time
+
+# Sync: Sequential (slower)
+start = time.time()
+emails = []
+for msg_id in message_ids[:50]:
+    emails.append(gmail.get_email(msg_id))
+print(f"Sync: {time.time() - start:.2f}s")  # ~15-20 seconds
+
+# Async: Concurrent (faster)
+start = time.time()
+emails = await async_gmail.batch_get_emails(message_ids[:50])
+print(f"Async: {time.time() - start:.2f}s")  # ~1-2 seconds
+```
+
+### Async API Methods
+
+All synchronous methods have async equivalents:
+- `async_gmail.list_emails()` → `await async_gmail.list_emails()`
+- `async_gmail.get_email()` → `await async_gmail.get_email()`
+- `async_gmail.send_email()` → `await async_gmail.send_email()`
+- `async_gmail.batch_get_emails()` → `await async_gmail.batch_get_emails()`
+- `async_gmail.reply()` → `await async_gmail.reply()`
+- `async_gmail.forward()` → `await async_gmail.forward()`
+- `async_gmail.mark_as_read()` → `await async_gmail.mark_as_read()`
+- And all other methods...
+
 ## Error Handling
 
 The Gmail service includes comprehensive error handling:
 
 ```python
-from google_api_client.services.gmail.exceptions import (
+from google_client.services.gmail.exceptions import (
     GmailError,
     EmailNotFoundError,
     AttachmentNotFoundError,
@@ -668,12 +794,14 @@ setup_auto_reply(user.gmail, auto_reply_msg)
 
 ### Constants
 
-| Constant              | Value    | Description                     |
-|-----------------------|----------|---------------------------------|
-| `MAX_RESULTS_LIMIT`   | 2500     | Maximum emails per query        |
-| `DEFAULT_MAX_RESULTS` | 30       | Default result limit            |
-| `MAX_BODY_LENGTH`     | 25000000 | Maximum email body size (~25MB) |
-| `MAX_SUBJECT_LENGTH`  | 998      | Maximum subject length          |
+Available constants from `google_client.services.gmail.constants`:
+
+| Constant            | Value    | Description                     |
+|---------------------|----------|---------------------------------|
+| `MAX_BODY_LENGTH`   | 25000000 | Maximum email body size (~25MB) |
+| `MAX_SUBJECT_LENGTH`| 998      | Maximum subject length          |
+
+**Note:** The `list_emails()` and `list_threads()` methods default to `max_results=100`. There is no enforced maximum limit - use pagination for large result sets.
 
 ---
 

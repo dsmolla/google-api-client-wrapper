@@ -1,3 +1,5 @@
+import asyncio
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta
 from typing import Optional, List, Any, Dict, Union
 
@@ -7,38 +9,33 @@ from googleapiclient.discovery import build
 from google_client.utils.datetime import datetime_to_iso, current_datetime
 from . import utils
 from .constants import DEFAULT_CALENDAR_ID
-from .types import Calendar, CalendarEvent, Attendee, FreeBusyResponse, TimeSlot
+from .types import CalendarEvent, Attendee, FreeBusyResponse, TimeSlot, Calendar
 
 
-class CalendarApiService:
-    """
-    Service layer for Calendar API operations.
-    """
-
+class AsyncCalendarApiService:
     def __init__(self, credentials: Credentials, timezone: str):
-        self._service = build("calendar", "v3", credentials=credentials)
+        self._executor = ThreadPoolExecutor()
+        self._credentials = credentials
         self._timezone = timezone
 
+    def __del__(self):
+        """Cleanup ThreadPoolExecutor on deletion."""
+        if hasattr(self, '_executor'):
+            self._executor.shutdown(wait=False)
+
+    def _service(self):
+        return build("calendar", "v3", credentials=self._credentials)
+
     def query(self):
-        """
-        Create a new EventQueryBuilder for building complex event queries with a fluent API.
+        from .async_query_builder import AsyncEventQueryBuilder
+        return AsyncEventQueryBuilder(self, self._timezone)
 
-        Returns:
-            EventQueryBuilder instance for method chaining
-
-        Example:
-            events = (user.calendar.query()
-                .limit(50)
-                .today()
-                .search("meeting")
-                .with_location()
-                .execute())
-        """
-        from .query_builder import EventQueryBuilder
-        return EventQueryBuilder(self, self._timezone)
-
-    def list_calendars(self, max_results: int = 250) -> List[Calendar]:
-        payload = self._service.calendarList().list(maxResults=max_results).execute()
+    async def list_calendars(self, max_results: int = 250) -> List[Calendar]:
+        loop = asyncio.get_event_loop()
+        payload = await loop.run_in_executor(
+            self._executor,
+            lambda: self._service().calendarList().list(maxResults=max_results).execute()
+        )
         calendars = []
         for item in payload["items"]:
             calendars.append(
@@ -54,14 +51,22 @@ class CalendarApiService:
 
         return calendars
 
-    def delete_calendar(self, calendar: Calendar | str) -> None:
+    async def delete_calendar(self, calendar: Calendar | str) -> None:
         if isinstance(calendar, Calendar):
             calendar = calendar.id
 
-        self._service.calendarList().delete(calendarId=calendar).execute()
+        loop = asyncio.get_event_loop()
+        await loop.run_in_executor(
+            self._executor,
+            lambda: self._service().calendarList().delete(calendarId=calendar).execute()
+        )
 
-    def get_calendar(self, calendar_id: str) -> Calendar:
-        calendar = self._service.calendarList().get(calendarId=calendar_id).execute()
+    async def get_calendar(self, calendar_id: str) -> Calendar:
+        loop = asyncio.get_event_loop()
+        calendar = await loop.run_in_executor(
+            self._executor,
+            lambda: self._service().calendarList().get(calendarId=calendar_id).execute()
+        )
         return Calendar(
             id=calendar.get('id'),
             summary=calendar.get('summary'),
@@ -71,7 +76,7 @@ class CalendarApiService:
             deleted=calendar.get('deleted', False),
         )
 
-    def create_calendar(
+    async def create_calendar(
             self,
             summary: str,
             description: str = None,
@@ -86,7 +91,11 @@ class CalendarApiService:
         if foreground_color:
             body['foreground_color'] = foreground_color
 
-        payload = self._service.calendars().insert(body=body).execute()
+        loop = asyncio.get_event_loop()
+        payload = await loop.run_in_executor(
+            self._executor,
+            lambda: self._service().calendars().insert(body=body).execute()
+        )
         return Calendar(
             id=payload.get('id'),
             summary=payload.get('summary'),
@@ -96,8 +105,12 @@ class CalendarApiService:
             deleted=payload.get('deleted', False),
         )
 
-    def update_calendar(self, calendar: Calendar):
-        payload = self._service.calendars().update(calendarId=calendar.id, body=calendar.to_dict()).execute()
+    async def update_calendar(self, calendar: Calendar):
+        loop = asyncio.get_event_loop()
+        payload = await loop.run_in_executor(
+            self._executor,
+            lambda: self._service().calendars().update(calendarId=calendar.id, body=calendar.to_dict()).execute()
+        )
         return Calendar(
             id=payload.get('id'),
             summary=payload.get('summary'),
@@ -107,9 +120,9 @@ class CalendarApiService:
             deleted=payload.get('deleted', False),
         )
 
-    def list_events(
+    async def list_events(
             self,
-            max_results: Optional[int] = 109,
+            max_results: Optional[int] = 100,
             start: Optional[datetime] = None,
             end: Optional[datetime] = None,
             query: Optional[str] = None,
@@ -117,22 +130,6 @@ class CalendarApiService:
             single_events: bool = True,
             order_by: str = 'startTime'
     ) -> List[CalendarEvent]:
-        """
-        Fetches a list of events from Google Calendar with optional filtering.
-
-        Args:
-            max_results: Maximum number of events to retrieve. Defaults to 100.
-            start: Start time for events (inclusive). Defaults to today.
-            end: End time for events (exclusive). Defaults to 7 days from start date
-            query: Text search query string.
-            calendar_id: Calendar ID to query (default: 'primary').
-            single_events: Whether to expand recurring events into instances.
-            order_by: How to order the events ('startTime' or 'updated').
-
-        Returns:
-            A list of CalendarEvent objects representing the events found.
-            If no events are found, an empty list is returned.
-        """
 
         if max_results < 1:
             raise ValueError(f"max_results must be at least 1")
@@ -161,34 +158,35 @@ class CalendarApiService:
         if query:
             request_params['q'] = query
 
-        result = self._service.events().list(**request_params).execute()
+        loop = asyncio.get_event_loop()
+        result = await loop.run_in_executor(
+            self._executor,
+            lambda: self._service().events().list(**request_params).execute()
+        )
+
         events = [utils.from_google_event(event, self._timezone) for event in result.get('items', [])]
         while result.get('nextPageToken') and len(events) < max_results:
-            result = self._service.events().list(**request_params, pageToken=result['nextPageToken']).execute()
+            result = await loop.run_in_executor(
+                self._executor,
+                lambda: self._service().events().list(**request_params, pageToken=result['nextPageToken']).execute()
+            )
             events.extend([utils.from_google_event(event, self._timezone) for event in result.get('items', [])])
 
         return events
 
-    def get_event(self, event_id: str, calendar_id: str = DEFAULT_CALENDAR_ID) -> CalendarEvent:
-        """
-        Retrieves a specific event from Google Calendar using its unique identifier.
-
-        Args:
-            event_id: The unique identifier of the event to be retrieved.
-            calendar_id: Calendar ID containing the event (default: 'primary').
-
-        Returns:
-            A CalendarEvent object representing the event with the specified ID.
-        """
-
-        event_data = self._service.events().get(
-            calendarId=calendar_id,
-            eventId=event_id
-        ).execute()
+    async def get_event(self, event_id: str, calendar_id: str = DEFAULT_CALENDAR_ID) -> CalendarEvent:
+        loop = asyncio.get_event_loop()
+        event_data = await loop.run_in_executor(
+            self._executor,
+            lambda: self._service().events().get(
+                calendarId=calendar_id,
+                eventId=event_id
+            ).execute()
+        )
 
         return utils.from_google_event(event_data, self._timezone)
 
-    def create_event(
+    async def create_event(
             self,
             start: datetime,
             end: datetime,
@@ -199,22 +197,7 @@ class CalendarApiService:
             recurrence: List[str] = None,
             calendar_id: str = DEFAULT_CALENDAR_ID
     ) -> CalendarEvent:
-        """
-        Creates a new calendar event.
 
-        Args:
-            start: Event start datetime.
-            end: Event end datetime.
-            summary: Brief title or summary of the event.
-            description: Detailed description of the event.
-            location: Physical or virtual location of the event.
-            attendees: List of Attendee objects for invited people.
-            recurrence: List of recurrence rules in RFC 5545 format.
-            calendar_id: Calendar ID to create event in (default: 'primary').
-
-        Returns:
-            A CalendarEvent object representing the created event.
-        """
         if start >= end:
             raise ValueError("end datetime should be after start datetime.")
 
@@ -233,29 +216,23 @@ class CalendarApiService:
         if recurrence:
             event_body['recurrence'] = recurrence
 
-        created_event = self._service.events().insert(
-            calendarId=calendar_id,
-            body=event_body
-        ).execute()
+        loop = asyncio.get_event_loop()
+        created_event = await loop.run_in_executor(
+            self._executor,
+            lambda: self._service().events().insert(
+                calendarId=calendar_id,
+                body=event_body
+            ).execute()
+        )
 
         calendar_event = utils.from_google_event(created_event, self._timezone)
         return calendar_event
 
-    def update_event(
+    async def update_event(
             self,
             event: CalendarEvent,
             calendar_id: str = DEFAULT_CALENDAR_ID
     ) -> CalendarEvent:
-        """
-        Updates an existing calendar event.
-
-        Args:
-            event: CalendarEvent object with updated data.
-            calendar_id: Calendar ID containing the event (default: 'primary').
-
-        Returns:
-            A CalendarEvent object representing the updated event.
-        """
 
         if event.start >= event.end:
             raise ValueError("end datetime should be after start datetime.")
@@ -268,111 +245,69 @@ class CalendarApiService:
         event_body['start'] = {'dateTime': datetime_to_iso(event.start, self._timezone), 'timeZone': self._timezone}
         event_body['end'] = {'dateTime': datetime_to_iso(event.end, self._timezone), 'timeZone': self._timezone}
 
-        updated_event = self._service.events().update(
-            calendarId=calendar_id,
-            eventId=event.event_id,
-            body=event_body
-        ).execute()
+        loop = asyncio.get_event_loop()
+        updated_event = await loop.run_in_executor(
+            self._executor,
+            lambda: self._service().events().update(
+                calendarId=calendar_id,
+                eventId=event.event_id,
+                body=event_body
+            ).execute()
+        )
 
         updated_calendar_event = utils.from_google_event(updated_event, self._timezone)
         return updated_calendar_event
 
-    def delete_event(
+    async def delete_event(
             self,
             event: Union[CalendarEvent, str],
             calendar_id: str = DEFAULT_CALENDAR_ID
     ) -> None:
-        """
-        Deletes a calendar event.
-
-        Args:
-            event: The Calendar event to delete.
-            calendar_id: Calendar ID containing the event (default: 'primary').
-
-        Returns:
-            True if the operation was successful, False otherwise.
-        """
 
         if isinstance(event, CalendarEvent):
             event = event.event_id
 
-        self._service.events().delete(
-            calendarId=calendar_id,
-            eventId=event
-        ).execute()
+        loop = asyncio.get_event_loop()
+        await loop.run_in_executor(
+            self._executor,
+            lambda: self._service().events().delete(
+                calendarId=calendar_id,
+                eventId=event
+            ).execute()
+        )
 
-    def batch_get_events(
+    async def batch_get_events(
             self,
             event_ids: List[str],
             calendar_id: str = DEFAULT_CALENDAR_ID
-    ) -> List[CalendarEvent | Exception]:
-        """
-        Retrieves multiple events by their IDs.
-
-        Args:
-            event_ids: List of event IDs to retrieve.
-            calendar_id: Calendar ID containing the events (default: 'primary').
-
-        Returns:
-            List of CalendarEvent objects.
-        """
-
-        calendar_events = []
+    ) -> List[CalendarEvent]:
+        tasks = []
         for event_id in event_ids:
-            try:
-                calendar_events.append(self.get_event(event_id, calendar_id))
-            except Exception as e:
-                calendar_events.append(e)
+            task = asyncio.create_task(self.get_event(event_id, calendar_id))
+            tasks.append(task)
 
-        return calendar_events
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        return results
 
-    def batch_create_events(
+    async def batch_create_events(
             self,
             events_data: List[Dict[str, Any]],
             calendar_id: str = DEFAULT_CALENDAR_ID
-    ) -> List[CalendarEvent | Exception]:
-        """
-        Creates multiple events.
-
-        Args:
-            events_data: List of dictionaries containing event parameters.
-            calendar_id: Calendar ID to create events in (default: 'primary').
-
-        Returns:
-            List of created CalendarEvent objects.
-        """
-
-        created_events = []
+    ) -> List[CalendarEvent]:
+        tasks = []
         for event_data in events_data:
-            try:
-                created_events.append(self.create_event(calendar_id=calendar_id, **event_data))
-            except Exception as e:
-                created_events.append(e)
+            task = asyncio.create_task(self.create_event(calendar_id=calendar_id, **event_data))
+            tasks.append(task)
 
-        return created_events
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        return results
 
-    def get_freebusy(
+    async def get_freebusy(
             self,
             start: datetime,
             end: datetime,
             calendar_ids: Optional[List[str]] = None,
     ) -> FreeBusyResponse:
-        """
-        Query free/busy information for specified calendars and time range.
-
-        Args:
-            start: Start datetime for the query
-            end: End datetime for the query
-            calendar_ids: List of calendar IDs to query (defaults to primary calendar)
-
-        Returns:
-            FreeBusyResponse object containing availability information
-
-        Raises:
-            CalendarError: If the API request fails
-            ValueError: If the parameters are invalid
-        """
-
         if calendar_ids is None:
             calendar_ids = [DEFAULT_CALENDAR_ID]
 
@@ -382,37 +317,26 @@ class CalendarApiService:
             "items": [{"id": cal_id} for cal_id in calendar_ids]
         }
 
-        result = self._service.freebusy().query(body=request_body).execute()
+        loop = asyncio.get_event_loop()
+        result = await loop.run_in_executor(
+            self._executor,
+            lambda: self._service().freebusy().query(body=request_body).execute()
+        )
+
         return utils.parse_freebusy_response(result, self._timezone)
 
-    def find_free_slots(
+    async def find_free_slots(
             self,
             start: datetime,
             end: datetime,
             duration_minutes: int,
             calendar_ids: Optional[List[str]] = None
-    ) -> Dict[str, List[TimeSlot]]:
-        """
-        Find all available time slots of a specified duration within a time range.
-
-        Args:
-            start: Start datetime for the search
-            end: End datetime for the search
-            duration_minutes: Minimum duration for free slots in minutes
-            calendar_ids: List of calendar IDs to check (defaults to primary calendar)
-
-        Returns:
-            List of TimeSlot objects representing available time slots
-
-        Raises:
-            CalendarError: If the API request fails
-            ValueError: If the parameters are invalid
-        """
+    ) -> Dict['str', List[TimeSlot]]:
 
         if calendar_ids is None:
             calendar_ids = [DEFAULT_CALENDAR_ID]
 
-        freebusy_response = self.get_freebusy(start, end, calendar_ids)
+        freebusy_response = await self.get_freebusy(start, end, calendar_ids)
 
         free_slots = {}
         for calendar_id in calendar_ids:

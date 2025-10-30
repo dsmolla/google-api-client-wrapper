@@ -1,11 +1,9 @@
-from datetime import datetime
-from typing import Optional, List, Union, TYPE_CHECKING
+from datetime import datetime, timedelta
+from typing import Optional, List, Union
 
-from .constants import FOLDER_MIME_TYPE, MAX_RESULTS_LIMIT, DEFAULT_MAX_RESULTS
-from ...utils.datetime import convert_datetime_to_iso
-
-if TYPE_CHECKING:
-    from .api_service import DriveItem, DriveFolder
+from google_client.utils.datetime import datetime_to_iso, current_datetime
+from .api_service import DriveItem, DriveFolder
+from .constants import FOLDER_MIME_TYPE
 
 
 class DriveQueryBuilder:
@@ -22,24 +20,23 @@ class DriveQueryBuilder:
             .execute())
     """
 
-    def __init__(self, api_service_class):
+    def __init__(self, api_service_class, timezone: str = "UTC"):
         self._api_service = api_service_class
-        self._max_results: Optional[int] = DEFAULT_MAX_RESULTS
+        self._timezone = timezone
+        self._max_results: Optional[int] = 100
         self._query_parts: List[str] = []
-        self._fields: Optional[str] = None
         self._order_by: Optional[str] = None
-        self._page_token: Optional[str] = None
 
     def limit(self, count: int) -> "DriveQueryBuilder":
         """
         Set the maximum number of files to retrieve.
         Args:
-            count: Maximum number of files (1-1000)
+            count: Maximum number of files
         Returns:
             Self for method chaining
         """
-        if count < 1 or count > MAX_RESULTS_LIMIT:
-            raise ValueError(f"Limit must be between 1 and {MAX_RESULTS_LIMIT}")
+        if count < 1:
+            raise ValueError(f"Limit must be at least 1")
         self._max_results = count
         return self
 
@@ -233,7 +230,7 @@ class DriveQueryBuilder:
             Self for method chaining
         """
         if date_time:
-            iso_date = convert_datetime_to_iso(date_time)
+            iso_date = datetime_to_iso(date_time, self._timezone)
             self._query_parts.append(f"createdTime > '{iso_date}'")
         return self
 
@@ -246,7 +243,7 @@ class DriveQueryBuilder:
             Self for method chaining
         """
         if date_time:
-            iso_date = convert_datetime_to_iso(date_time)
+            iso_date = datetime_to_iso(date_time, self._timezone)
             self._query_parts.append(f"createdTime < '{iso_date}'")
         return self
 
@@ -259,7 +256,7 @@ class DriveQueryBuilder:
             Self for method chaining
         """
         if date_time:
-            iso_date = convert_datetime_to_iso(date_time)
+            iso_date = datetime_to_iso(date_time, self._timezone)
             self._query_parts.append(f"modifiedTime > '{iso_date}'")
         return self
 
@@ -272,7 +269,7 @@ class DriveQueryBuilder:
             Self for method chaining
         """
         if date_time:
-            iso_date = convert_datetime_to_iso(date_time)
+            iso_date = datetime_to_iso(date_time, self._timezone)
             self._query_parts.append(f"modifiedTime < '{iso_date}'")
         return self
 
@@ -346,16 +343,115 @@ class DriveQueryBuilder:
         """
         return self.order_by("createdTime", ascending)
 
-    def fields(self, fields: str) -> "DriveQueryBuilder":
+    def created_today(self) -> "DriveQueryBuilder":
         """
-        Set specific fields to retrieve from the API.
-        Args:
-            fields: Comma-separated list of fields
+        Filter files created today.
         Returns:
             Self for method chaining
         """
-        self._fields = fields
-        return self
+        today = current_datetime(self._timezone).replace(hour=0, minute=0, second=0, microsecond=0)
+        return self.created_after(today)
+
+    def created_yesterday(self) -> "DriveQueryBuilder":
+        """
+        Filter files created yesterday.
+        Returns:
+            Self for method chaining
+        """
+        today = current_datetime(self._timezone).replace(hour=0, minute=0, second=0, microsecond=0)
+        yesterday = today - timedelta(days=1)
+        return self.created_after(yesterday).created_before(today)
+
+    def created_this_week(self) -> "DriveQueryBuilder":
+        """
+        Filter files created this week (Monday to Sunday).
+        Returns:
+            Self for method chaining
+        """
+        now = current_datetime(self._timezone)
+        today = now.replace(hour=0, minute=0, second=0, microsecond=0)
+        days_since_monday = today.weekday()
+        monday = today - timedelta(days=days_since_monday)
+        return self.created_after(monday)
+
+    def created_this_month(self) -> "DriveQueryBuilder":
+        """
+        Filter files created this month.
+        Returns:
+            Self for method chaining
+        """
+        now = current_datetime(self._timezone)
+        start_of_month = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+        return self.created_after(start_of_month)
+
+    def created_last_days(self, days: int) -> "DriveQueryBuilder":
+        """
+        Filter files created in the last N days.
+        Args:
+            days: Number of days to look back
+        Returns:
+            Self for method chaining
+        """
+        if days < 1:
+            raise ValueError("Days must be positive")
+        now = current_datetime(self._timezone).replace(hour=0, minute=0, second=0, microsecond=0)
+        start_time = now - timedelta(days=days)
+        return self.created_after(start_time)
+
+    def modified_today(self) -> "DriveQueryBuilder":
+        """
+        Filter files modified today.
+        Returns:
+            Self for method chaining
+        """
+        today = current_datetime(self._timezone).replace(hour=0, minute=0, second=0, microsecond=0)
+        return self.modified_after(today)
+
+    def modified_yesterday(self) -> "DriveQueryBuilder":
+        """
+        Filter files modified yesterday.
+        Returns:
+            Self for method chaining
+        """
+        today = current_datetime(self._timezone).replace(hour=0, minute=0, second=0, microsecond=0)
+        yesterday = today - timedelta(days=1)
+        return self.modified_after(yesterday).modified_before(today)
+
+    def modified_this_week(self) -> "DriveQueryBuilder":
+        """
+        Filter files modified this week (Monday to Sunday).
+        Returns:
+            Self for method chaining
+        """
+        now = current_datetime(self._timezone)
+        today = now.replace(hour=0, minute=0, second=0, microsecond=0)
+        days_since_monday = today.weekday()
+        monday = today - timedelta(days=days_since_monday)
+        return self.modified_after(monday)
+
+    def modified_this_month(self) -> "DriveQueryBuilder":
+        """
+        Filter files modified this month.
+        Returns:
+            Self for method chaining
+        """
+        now = current_datetime(self._timezone)
+        start_of_month = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+        return self.modified_after(start_of_month)
+
+    def modified_last_days(self, days: int) -> "DriveQueryBuilder":
+        """
+        Filter files modified in the last N days.
+        Args:
+            days: Number of days to look back
+        Returns:
+            Self for method chaining
+        """
+        if days < 1:
+            raise ValueError("Days must be positive")
+        now = current_datetime(self._timezone)
+        start_time = now - timedelta(days=days)
+        return self.modified_after(start_time)
 
     def _build_query(self) -> str:
         """
@@ -379,7 +475,5 @@ class DriveQueryBuilder:
         return self._api_service.list(
             query=query,
             max_results=self._max_results,
-            order_by=self._order_by,
-            fields=self._fields,
-            page_token=self._page_token
+            order_by=self._order_by
         )

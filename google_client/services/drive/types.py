@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Optional, List
-from pydantic import BaseModel, Field
 
+from pydantic import BaseModel, Field
 
 from google_client.services.drive.constants import GOOGLE_DOCS_MIME_TYPE, GOOGLE_SHEETS_MIME_TYPE, \
     GOOGLE_SLIDES_MIME_TYPE
@@ -162,18 +162,18 @@ class DriveFile(DriveItem):
         """
         if self.size is None:
             return "Unknown"
-        
+
         if self.size == 0:
             return "0 B"
-        
+
         size = self.size
         units = ["B", "KB", "MB", "GB", "TB"]
         unit_index = 0
-        
+
         while size >= 1024 and unit_index < len(units) - 1:
             size /= 1024
             unit_index += 1
-        
+
         return f"{size:.1f} {units[unit_index]}"
 
     def to_dict(self) -> dict:
@@ -202,6 +202,7 @@ class DriveFolder(DriveItem):
     """
     Represents a folder in Google Drive.
     """
+
     @property
     def folder_id(self):
         return self.item_id

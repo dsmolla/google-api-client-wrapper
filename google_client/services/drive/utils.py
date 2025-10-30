@@ -1,10 +1,10 @@
+import mimetypes
 from datetime import datetime
 from typing import Optional, Dict, Any, List, Union
-import mimetypes
 
-from .types import DriveFile, DriveFolder, Permission
 from .constants import FOLDER_MIME_TYPE, GOOGLE_DOCS_MIME_TYPE, MICROSOFT_WORD_MIME_TYPE, GOOGLE_SHEETS_MIME_TYPE, \
     MICROSOFT_EXCEL_MIME_TYPE, GOOGLE_SLIDES_MIME_TYPE, MICROSOFT_POWERPOINT_MIME_TYPE
+from .types import DriveFile, DriveFolder, Permission
 
 
 def convert_mime_type_to_downloadable(mime_type: str) -> str:
@@ -15,6 +15,7 @@ def convert_mime_type_to_downloadable(mime_type: str) -> str:
     }
 
     return mime_type_conversion.get(mime_type)
+
 
 def convert_api_file_to_drive_file(api_file: Dict[str, Any]) -> DriveFile:
     """
@@ -30,11 +31,11 @@ def convert_api_file_to_drive_file(api_file: Dict[str, Any]) -> DriveFile:
     created_time = None
     if api_file.get("createdTime"):
         created_time = datetime.fromisoformat(api_file["createdTime"].replace("Z", "+00:00"))
-    
+
     modified_time = None
     if api_file.get("modifiedTime"):
         modified_time = datetime.fromisoformat(api_file["modifiedTime"].replace("Z", "+00:00"))
-    
+
     # Parse size (API returns it as string)
     size = None
     if api_file.get("size"):
@@ -42,19 +43,19 @@ def convert_api_file_to_drive_file(api_file: Dict[str, Any]) -> DriveFile:
             size = int(api_file["size"])
         except (ValueError, TypeError):
             size = None
-    
+
     # Parse permissions
     permissions = []
     if api_file.get("permissions"):
         for perm_data in api_file["permissions"]:
             permissions.append(convert_api_permission_to_permission(perm_data))
-    
+
     # Extract owners
     owners = []
     if api_file.get("owners"):
-        owners = [owner.get("emailAddress", owner.get("displayName", "Unknown")) 
-                 for owner in api_file["owners"]]
-    
+        owners = [owner.get("emailAddress", owner.get("displayName", "Unknown"))
+                  for owner in api_file["owners"]]
+
     return DriveFile(
         item_id=api_file.get("id"),
         name=api_file.get("name"),
@@ -91,23 +92,23 @@ def convert_api_file_to_drive_folder(api_file: Dict[str, Any]) -> DriveFolder:
     created_time = None
     if api_file.get("createdTime"):
         created_time = datetime.fromisoformat(api_file["createdTime"].replace("Z", "+00:00"))
-    
+
     modified_time = None
     if api_file.get("modifiedTime"):
         modified_time = datetime.fromisoformat(api_file["modifiedTime"].replace("Z", "+00:00"))
-    
+
     # Parse permissions
     permissions = []
     if api_file.get("permissions"):
         for perm_data in api_file["permissions"]:
             permissions.append(convert_api_permission_to_permission(perm_data))
-    
+
     # Extract owners
     owners = []
     if api_file.get("owners"):
-        owners = [owner.get("emailAddress", owner.get("displayName", "Unknown")) 
-                 for owner in api_file["owners"]]
-    
+        owners = [owner.get("emailAddress", owner.get("displayName", "Unknown"))
+                  for owner in api_file["owners"]]
+
     return DriveFolder(
         item_id=api_file.get("id"),
         name=api_file.get("name"),
@@ -135,7 +136,7 @@ def convert_api_file_to_correct_type(api_file: Dict[str, Any]) -> Union[DriveFil
         DriveFile or DriveFolder object based on MIME type
     """
     mime_type = api_file.get("mimeType")
-    
+
     if mime_type == FOLDER_MIME_TYPE:
         return convert_api_file_to_drive_folder(api_file)
     else:
@@ -193,10 +194,10 @@ def guess_extension(mime_type: str) -> Optional[str]:
 
 
 def build_file_metadata(
-    name: str,
-    parents: Optional[List[str]] = None,
-    description: Optional[str] = None,
-    **kwargs
+        name: str,
+        parents: Optional[List[str]] = None,
+        description: Optional[str] = None,
+        **kwargs
 ) -> Dict[str, Any]:
     """
     Build file metadata dictionary for Drive API operations.
@@ -211,16 +212,16 @@ def build_file_metadata(
         Metadata dictionary
     """
     metadata = {"name": name}
-    
+
     if parents:
         metadata["parents"] = parents
-    
+
     if description:
         metadata["description"] = description
-    
+
     # Add any additional metadata
     metadata.update(kwargs)
-    
+
     return metadata
 
 
@@ -236,18 +237,18 @@ def sanitize_filename(filename: str) -> str:
     """
     # Characters that are problematic in Drive
     invalid_chars = ['<', '>', ':', '"', '|', '?', '*', '/', '\\']
-    
+
     sanitized = filename
     for char in invalid_chars:
         sanitized = sanitized.replace(char, '_')
-    
+
     # Remove leading/trailing whitespace and dots
     sanitized = sanitized.strip('. ')
-    
+
     # Ensure filename is not empty
     if not sanitized:
         sanitized = "untitled"
-    
+
     return sanitized
 
 
@@ -263,18 +264,18 @@ def format_file_size(size_bytes: Optional[int]) -> str:
     """
     if size_bytes is None:
         return "Unknown"
-    
+
     if size_bytes == 0:
         return "0 B"
-    
+
     units = ["B", "KB", "MB", "GB", "TB", "PB"]
     size = float(size_bytes)
     unit_index = 0
-    
+
     while size >= 1024 and unit_index < len(units) - 1:
         size /= 1024
         unit_index += 1
-    
+
     return f"{size:.1f} {units[unit_index]}"
 
 
@@ -303,10 +304,10 @@ def build_search_query(*query_parts: str) -> str:
     """
     # Filter out empty query parts
     valid_parts = [part.strip() for part in query_parts if part and part.strip()]
-    
+
     if not valid_parts:
         return ""
-    
+
     # Join with AND operator
     return " and ".join(f"({part})" for part in valid_parts)
 
@@ -325,15 +326,15 @@ def extract_file_id_from_url(url: str) -> Optional[str]:
     patterns = [
         r"/file/d/([a-zA-Z0-9-_]+)",  # /file/d/FILE_ID/view or /file/d/FILE_ID/edit
         r"/folders/([a-zA-Z0-9-_]+)",  # /folders/FOLDER_ID
-        r"id=([a-zA-Z0-9-_]+)",       # ?id=FILE_ID
+        r"id=([a-zA-Z0-9-_]+)",  # ?id=FILE_ID
     ]
-    
+
     import re
     for pattern in patterns:
         match = re.search(pattern, url)
         if match:
             return match.group(1)
-    
+
     return None
 
 
@@ -349,12 +350,12 @@ def parse_folder_path(path: str) -> List[str]:
     """
     if not path:
         return []
-    
+
     # Remove leading/trailing slashes and split
     path = path.strip('/')
     if not path:
         return []
-    
+
     return [name.strip() for name in path.split('/') if name.strip()]
 
 
@@ -370,7 +371,7 @@ def build_folder_path(folder_names: List[str]) -> str:
     """
     if not folder_names:
         return "/"
-    
+
     return "/" + "/".join(folder_names)
 
 
@@ -386,6 +387,6 @@ def normalize_folder_path(path: str) -> str:
     """
     if not path:
         return "/"
-    
+
     folder_names = parse_folder_path(path)
     return build_folder_path(folder_names)
