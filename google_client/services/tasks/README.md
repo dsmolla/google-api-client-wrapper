@@ -213,7 +213,7 @@ filtered_tasks = tasks.list_tasks(
     task_list_id="work_list_id",
     max_results=50,
     show_completed=False,
-    due_max=datetime.now() + timedelta(days=7)
+    due_max=date.today() + timedelta(days=7)
 )
 ```
 
@@ -726,15 +726,21 @@ cleanup_completed_tasks(tasks)
 
 ### Constants
 
+Available constants from `google_client.services.tasks.constants`:
+
 | Constant                   | Value         | Description                  |
 |----------------------------|---------------|------------------------------|
-| `MAX_RESULTS_LIMIT`        | 100           | Maximum tasks per query      |
-| `DEFAULT_MAX_RESULTS`      | 100           | Default result limit         |
 | `MAX_TITLE_LENGTH`         | 1024          | Maximum task title length    |
 | `MAX_NOTES_LENGTH`         | 8192          | Maximum notes length         |
 | `TASK_STATUS_NEEDS_ACTION` | "needsAction" | Active task status           |
 | `TASK_STATUS_COMPLETED`    | "completed"   | Completed task status        |
+| `VALID_TASK_STATUSES`      | ["needsAction", "completed"] | Valid status values |
 | `DEFAULT_TASK_LIST_ID`     | "@default"    | Default task list identifier |
+
+**Important Changes:**
+- The `list_tasks()` method defaults to `max_results=100`
+- Date parameters (`completed_min`, `completed_max`, `due_min`, `due_max`) now expect `date` objects, not `datetime`
+- Use `from datetime import date` and pass `date` objects like `date.today()` or `date(2024, 12, 31)`
 
 ---
 

@@ -6,7 +6,6 @@ from google.auth.credentials import Credentials
 from googleapiclient.discovery import build
 
 from . import utils
-from .constants import DEFAULT_MAX_RESULTS
 from .types import EmailMessage, EmailAttachment, Label, EmailThread
 
 
@@ -40,7 +39,7 @@ class GmailApiService:
 
     def list_emails(
             self,
-            max_results: Optional[int] = DEFAULT_MAX_RESULTS,
+            max_results: Optional[int] = 100,
             query: Optional[str] = None,
             include_spam_trash: bool = False,
             label_ids: Optional[List[str]] = None
@@ -641,7 +640,7 @@ class GmailApiService:
 
     def list_threads(
             self,
-            max_results: Optional[int] = DEFAULT_MAX_RESULTS,
+            max_results: Optional[int] = 100,
             query: Optional[str] = None,
             include_spam_trash: bool = False,
             label_ids: Optional[List[str]] = None

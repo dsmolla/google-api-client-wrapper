@@ -6,10 +6,10 @@ from typing import Optional, List, Any, Dict, Union
 from google.auth.credentials import Credentials
 from googleapiclient.discovery import build
 
+from google_client.utils.datetime import datetime_to_iso, current_datetime
 from . import utils
-from .constants import DEFAULT_MAX_RESULTS, MAX_RESULTS_LIMIT, DEFAULT_CALENDAR_ID, DEFAULT_FREEBUSY_DURATION_MINUTES
+from .constants import DEFAULT_CALENDAR_ID
 from .types import CalendarEvent, Attendee, FreeBusyResponse, TimeSlot, Calendar
-from ...utils.datetime import datetime_to_iso, current_datetime
 
 
 class AsyncCalendarApiService:
@@ -29,7 +29,7 @@ class AsyncCalendarApiService:
     def query(self):
         from .async_query_builder import AsyncEventQueryBuilder
         return AsyncEventQueryBuilder(self, self._timezone)
-    
+
     async def list_calendars(self, max_results: int = 250) -> List[Calendar]:
         loop = asyncio.get_event_loop()
         payload = await loop.run_in_executor(
@@ -122,7 +122,7 @@ class AsyncCalendarApiService:
 
     async def list_events(
             self,
-            max_results: Optional[int] = DEFAULT_MAX_RESULTS,
+            max_results: Optional[int] = 100,
             start: Optional[datetime] = None,
             end: Optional[datetime] = None,
             query: Optional[str] = None,
@@ -131,8 +131,8 @@ class AsyncCalendarApiService:
             order_by: str = 'startTime'
     ) -> List[CalendarEvent]:
 
-        if max_results < 1 or max_results > MAX_RESULTS_LIMIT:
-            raise ValueError(f"max_results must be between 1 and {MAX_RESULTS_LIMIT}")
+        if max_results < 1:
+            raise ValueError(f"max_results must be at least 1")
 
         if not start:
             start = datetime.combine(current_datetime(self._timezone).today(), datetime.min.time())
@@ -165,6 +165,13 @@ class AsyncCalendarApiService:
         )
 
         events = [utils.from_google_event(event, self._timezone) for event in result.get('items', [])]
+        while result.get('nextPageToken') and len(events) < max_results:
+            result = await loop.run_in_executor(
+                self._executor,
+                lambda: self._service().events().list(**request_params, pageToken=result['nextPageToken']).execute()
+            )
+            events.extend([utils.from_google_event(event, self._timezone) for event in result.get('items', [])])
+
         return events
 
     async def get_event(self, event_id: str, calendar_id: str = DEFAULT_CALENDAR_ID) -> CalendarEvent:
@@ -322,7 +329,7 @@ class AsyncCalendarApiService:
             self,
             start: datetime,
             end: datetime,
-            duration_minutes: int = DEFAULT_FREEBUSY_DURATION_MINUTES,
+            duration_minutes: int,
             calendar_ids: Optional[List[str]] = None
     ) -> Dict['str', List[TimeSlot]]:
 

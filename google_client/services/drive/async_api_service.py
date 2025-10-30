@@ -9,13 +9,8 @@ from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload, MediaIoBaseUpload, MediaIoBaseDownload
 
 from . import utils
-from .constants import (
-    DEFAULT_MAX_RESULTS, DEFAULT_FILE_FIELDS,
-    FOLDER_MIME_TYPE, DEFAULT_CHUNK_SIZE
-)
-from .exceptions import (
-    FileNotFoundError, FolderNotFoundError, PermissionDeniedError
-)
+from .constants import DEFAULT_FILE_FIELDS, FOLDER_MIME_TYPE, DEFAULT_CHUNK_SIZE
+from .exceptions import FileNotFoundError, FolderNotFoundError, PermissionDeniedError
 from .types import DriveFile, DriveFolder, Permission, DriveItem
 from .utils import convert_mime_type_to_downloadable
 from ...utils.datetime import datetime_to_readable
@@ -47,7 +42,7 @@ class AsyncDriveApiService:
     async def list(
             self,
             query: Optional[str] = None,
-            max_results: Optional[int] = DEFAULT_MAX_RESULTS,
+            max_results: Optional[int] = 100,
             order_by: Optional[str] = None
     ) -> List[DriveItem]:
         if max_results < 1:
@@ -172,16 +167,21 @@ class AsyncDriveApiService:
         file_obj = utils.convert_api_file_to_drive_file(result)
         return file_obj
 
-    async def download_file(self, file: DriveFile | str, download_folder: str, file_name: str = None) -> str:
-        download_folder = Path(download_folder)
-        download_folder.mkdir(parents=True, exist_ok=True)
+    async def download_file(
+            self,
+            file: DriveFile | str,
+            destination_folder: str = str(Path.home() / "Downloads" / "DriveFiles"),
+            file_name: str = None
+    ) -> str:
+        destination_folder = Path(destination_folder)
+        destination_folder.mkdir(parents=True, exist_ok=True)
 
         if isinstance(file, str):
             file = await self.get(file)
 
         if not file_name:
             file_name = file.name
-        file_path = str(download_folder.joinpath(file_name))
+        file_path = str(destination_folder.joinpath(file_name))
         with open(file_path, "wb") as f:
             f.write(await self.get_file_payload(file))
 
@@ -367,7 +367,7 @@ class AsyncDriveApiService:
             folder: DriveFolder | str,
             include_folders: bool = True,
             include_files: bool = True,
-            max_results: Optional[int] = DEFAULT_MAX_RESULTS,
+            max_results: Optional[int] = 100,
             order_by: Optional[str] = None
     ) -> List[DriveItem]:
         if isinstance(folder, DriveFolder):
@@ -460,10 +460,10 @@ class AsyncDriveApiService:
 
         for folder_name in folder_names:
             folders = await (self.query()
-                       .in_folder(current_folder_id)
-                       .folders_named(folder_name)
-                       .limit(1)
-                       .execute())
+                             .in_folder(current_folder_id)
+                             .folders_named(folder_name)
+                             .limit(1)
+                             .execute())
 
             if not folders:
                 return None
@@ -496,10 +496,10 @@ class AsyncDriveApiService:
 
         for i, folder_name in enumerate(folder_names):
             existing_folders = await (self.query()
-                                .in_folder(current_folder_id)
-                                .folders_named(folder_name)
-                                .limit(1)
-                                .execute())
+                                      .in_folder(current_folder_id)
+                                      .folders_named(folder_name)
+                                      .limit(1)
+                                      .execute())
 
             if existing_folders:
                 current_folder_id = existing_folders[0].item_id

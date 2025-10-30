@@ -1,12 +1,11 @@
 from datetime import datetime, date, timedelta
 from typing import Optional, List, Self
 
-from .constants import MAX_RESULTS_LIMIT, MAX_QUERY_LENGTH, DEFAULT_MAX_RESULTS, DEFAULT_CALENDAR_ID
-from ...utils.datetime import current_datetime
-
-from .types import CalendarEvent
 from .api_service import CalendarApiService
 from .async_api_service import AsyncCalendarApiService
+from .constants import DEFAULT_CALENDAR_ID
+from .types import CalendarEvent
+from ...utils.datetime import current_datetime
 
 
 class EventQueryBuilder:
@@ -25,7 +24,7 @@ class EventQueryBuilder:
 
     def __init__(self, api_service: CalendarApiService | AsyncCalendarApiService, timezone: str):
         self._api_service = api_service
-        self._max_results: Optional[int] = DEFAULT_MAX_RESULTS
+        self._max_results: Optional[int] = 100
         self._start: Optional[datetime] = None
         self._end: Optional[datetime] = None
         self._query: Optional[str] = None
@@ -40,12 +39,12 @@ class EventQueryBuilder:
         """
         Set the maximum number of events to retrieve.
         Args:
-            count: Maximum number of events (1-2500)
+            count: Maximum number of events
         Returns:
             Self for method chaining
         """
-        if count < 1 or count > MAX_RESULTS_LIMIT:
-            raise ValueError(f"Limit must be between 1 and {MAX_RESULTS_LIMIT}")
+        if count < 1:
+            raise ValueError(f"Limit must be at least 1")
         self._max_results = count
         return self
 
@@ -94,8 +93,6 @@ class EventQueryBuilder:
         Returns:
             Self for method chaining
         """
-        if len(query) > MAX_QUERY_LENGTH:
-            raise ValueError(f"Query string cannot exceed {MAX_QUERY_LENGTH} characters")
         self._query = query
         return self
 
@@ -315,6 +312,3 @@ class EventQueryBuilder:
             True if at least one event matches, False otherwise
         """
         return self.limit(1).count() > 0
-
-    def __repr__(self):
-        return f"EventQueryBuilder(query='{self._query}', limit={self._max_results}, calendar_id='{self._calendar_id}')"

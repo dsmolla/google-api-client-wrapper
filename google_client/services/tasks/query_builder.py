@@ -1,11 +1,11 @@
-from datetime import datetime, date, timedelta
-from typing import Optional, List, TYPE_CHECKING
-from .constants import MAX_RESULTS_LIMIT, DEFAULT_MAX_RESULTS, DEFAULT_TASK_LIST_ID
-from ...utils.datetime import current_datetime
+from datetime import datetime, timedelta
+from typing import Optional, List
 
-if TYPE_CHECKING:
-    from .types import Task
-    from .api_service import TasksApiService
+from google_client.utils.datetime import current_datetime
+from .api_service import TasksApiService
+from .async_api_service import AsyncTasksApiService
+from .constants import DEFAULT_TASK_LIST_ID
+from .types import Task
 
 
 class TaskQueryBuilder:
@@ -22,10 +22,10 @@ class TaskQueryBuilder:
             .execute())
     """
 
-    def __init__(self, api_service: "TasksApiService", timezone: str):
+    def __init__(self, api_service: TasksApiService | AsyncTasksApiService, timezone: str):
         self._api_service = api_service
         self._timezone = timezone
-        self._max_results: Optional[int] = DEFAULT_MAX_RESULTS
+        self._max_results: Optional[int] = 100
         self._completed_max: Optional[datetime] = None
         self._completed_min: Optional[datetime] = None
         self._due_max: Optional[datetime] = None
@@ -42,8 +42,8 @@ class TaskQueryBuilder:
         Returns:
             Self for method chaining
         """
-        if count < 1 or count > MAX_RESULTS_LIMIT:
-            raise ValueError(f"Limit must be between 1 and {MAX_RESULTS_LIMIT}")
+        if count < 1:
+            raise ValueError(f"Limit must be between at least 1")
         self._max_results = count
         return self
 
@@ -291,7 +291,6 @@ class TaskQueryBuilder:
             due_min=self._due_min,
             due_max=self._due_max,
             show_completed=self._show_completed,
-            show_hidden=self._show_hidden
         )
 
         return tasks

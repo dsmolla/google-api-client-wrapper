@@ -1,8 +1,8 @@
 from datetime import datetime
 from typing import Optional, List, Dict, Any
 
+from google_client.utils.datetime import iso_to_datetime
 from .types import CalendarEvent, Attendee, TimeSlot, FreeBusyResponse
-from ...utils.datetime import iso_to_datetime
 
 
 def validate_datetime_range(start: datetime, end: datetime) -> None:

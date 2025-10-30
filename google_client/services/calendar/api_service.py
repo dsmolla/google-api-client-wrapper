@@ -1,20 +1,18 @@
 from datetime import datetime, timedelta
 from typing import Optional, List, Any, Dict, Union
 
-from docutils.parsers.rst.directives import body
 from google.auth.credentials import Credentials
 from googleapiclient.discovery import build
 
+from google_client.utils.datetime import datetime_to_iso, current_datetime
 from . import utils
-from .constants import DEFAULT_MAX_RESULTS, MAX_RESULTS_LIMIT, DEFAULT_CALENDAR_ID, DEFAULT_FREEBUSY_DURATION_MINUTES
+from .constants import DEFAULT_CALENDAR_ID
 from .types import Calendar, CalendarEvent, Attendee, FreeBusyResponse, TimeSlot
-from ...utils.datetime import datetime_to_iso, current_datetime
 
 
 class CalendarApiService:
     """
     Service layer for Calendar API operations.
-    Contains all Calendar API functionality that was removed from dataclasses.
     """
 
     def __init__(self, credentials: Credentials, timezone: str):
@@ -111,7 +109,7 @@ class CalendarApiService:
 
     def list_events(
             self,
-            max_results: Optional[int] = DEFAULT_MAX_RESULTS,
+            max_results: Optional[int] = 109,
             start: Optional[datetime] = None,
             end: Optional[datetime] = None,
             query: Optional[str] = None,
@@ -125,7 +123,7 @@ class CalendarApiService:
         Args:
             max_results: Maximum number of events to retrieve. Defaults to 100.
             start: Start time for events (inclusive). Defaults to today.
-            end: End time for events (exclusive). Defaults to 30 days from start date
+            end: End time for events (exclusive). Defaults to 7 days from start date
             query: Text search query string.
             calendar_id: Calendar ID to query (default: 'primary').
             single_events: Whether to expand recurring events into instances.
@@ -136,8 +134,8 @@ class CalendarApiService:
             If no events are found, an empty list is returned.
         """
 
-        if max_results < 1 or max_results > MAX_RESULTS_LIMIT:
-            raise ValueError(f"max_results must be between 1 and {MAX_RESULTS_LIMIT}")
+        if max_results < 1:
+            raise ValueError(f"max_results must be at least 1")
 
         if not start:
             start = datetime.combine(current_datetime(self._timezone).today(), datetime.min.time())
@@ -165,6 +163,10 @@ class CalendarApiService:
 
         result = self._service.events().list(**request_params).execute()
         events = [utils.from_google_event(event, self._timezone) for event in result.get('items', [])]
+        while result.get('nextPageToken') and len(events) < max_results:
+            result = self._service.events().list(**request_params, pageToken=result['nextPageToken']).execute()
+            events.extend([utils.from_google_event(event, self._timezone) for event in result.get('items', [])])
+
         return events
 
     def get_event(self, event_id: str, calendar_id: str = DEFAULT_CALENDAR_ID) -> CalendarEvent:
@@ -387,7 +389,7 @@ class CalendarApiService:
             self,
             start: datetime,
             end: datetime,
-            duration_minutes: int = DEFAULT_FREEBUSY_DURATION_MINUTES,
+            duration_minutes: int,
             calendar_ids: Optional[List[str]] = None
     ) -> Dict[str, List[TimeSlot]]:
         """

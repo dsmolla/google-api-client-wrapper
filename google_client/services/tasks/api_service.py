@@ -1,20 +1,12 @@
-from datetime import datetime, date
+from datetime import datetime, date, timedelta
 from typing import Optional, List, Any, Dict, Union
 
 from google.auth.credentials import Credentials
 from googleapiclient.discovery import build
-from googleapiclient.errors import HttpError
 
-from .types import Task, TaskList
 from . import utils
-from .constants import (
-    DEFAULT_MAX_RESULTS, MAX_RESULTS_LIMIT, DEFAULT_TASK_LIST_ID,
-    TASK_STATUS_COMPLETED, TASK_STATUS_NEEDS_ACTION
-)
-from .exceptions import (
-    TasksError, TasksPermissionError, TasksNotFoundError,
-    InvalidTaskDataError, TaskMoveError
-)
+from .constants import DEFAULT_TASK_LIST_ID, TASK_STATUS_COMPLETED, TASK_STATUS_NEEDS_ACTION
+from .types import Task, TaskList
 from ...utils.datetime import datetime_to_iso
 
 
@@ -56,12 +48,14 @@ class TasksApiService:
     def list_tasks(
             self,
             task_list_id: str = DEFAULT_TASK_LIST_ID,
-            max_results: Optional[int] = DEFAULT_MAX_RESULTS,
-            completed_min: Optional[datetime] = None,
-            completed_max: Optional[datetime] = None,
-            due_min: Optional[datetime] = None,
-            due_max: Optional[datetime] = None,
-            show_completed: Optional[bool] = False
+            max_results: Optional[int] = 100,
+            completed_min: Optional[date] = None,
+            completed_max: Optional[date] = None,
+            due_min: Optional[date] = None,
+            due_max: Optional[date] = None,
+            show_completed: Optional[bool] = False,
+            show_assigned: Optional[bool] = True,
+            show_hidden: Optional[bool] = False,
     ) -> List[Task]:
         """
         Fetches a list of tasks from Google Tasks with optional filtering.
@@ -74,7 +68,6 @@ class TasksApiService:
             due_min: Lower bound for a task's due date (RFC 3339).
             due_max: Upper bound for a task's due date (RFC 3339).
             show_completed: Flag indicating whether completed tasks are returned.
-            show_hidden: Flag indicating whether hidden tasks are returned.
 
         Returns:
             A list of Task objects representing the tasks found.
@@ -86,16 +79,22 @@ class TasksApiService:
             'tasklist': task_list_id,
             'maxResults': max_results,
             'showCompleted': show_completed,
+            'showHidden': show_hidden,
+            'showAssigned': show_assigned,
         }
 
         if completed_min:
-            request_params['completedMin'] = datetime_to_iso(completed_min, self._timezone)
+            completed_min = datetime.combine(completed_min, datetime.min.time())
+            request_params['completedMin'] = completed_min.isoformat() + 'Z'
         if completed_max:
-            request_params['completedMax'] = datetime_to_iso(completed_max, self._timezone)
+            completed_max = datetime.combine(completed_max, datetime.min.time())
+            request_params['completedMax'] = completed_max.isoformat() + 'Z'
         if due_min:
-            request_params['dueMin'] = datetime_to_iso(due_min, self._timezone)
+            due_min = datetime.combine(due_min, datetime.min.time())
+            request_params['dueMin'] = due_min.isoformat() + 'Z'
         if due_max:
-            request_params['dueMax'] = datetime_to_iso(due_max, self._timezone)
+            due_max = datetime.combine(due_max, datetime.min.time())
+            request_params['dueMax'] = due_max.isoformat() + 'Z'
         if show_completed:
             request_params['showHidden'] = True
 
@@ -104,7 +103,8 @@ class TasksApiService:
         while result.get('nextPageToken') and len(tasks) < max_results:
             request_params['maxResults'] = max_results - len(tasks)
             result = self._service.tasks().list(**request_params).execute()
-            tasks.extend([utils.from_google_task(task, task_list_id, self._timezone) for task in result.get('items', [])])
+            tasks.extend(
+                [utils.from_google_task(task, task_list_id, self._timezone) for task in result.get('items', [])])
 
         return tasks
 
@@ -157,7 +157,7 @@ class TasksApiService:
             position=position
         )
 
-        created_task = self._service.tasks().insert(tasklist=task_list_id,body=task_body).execute()
+        created_task = self._service.tasks().insert(tasklist=task_list_id, body=task_body).execute()
 
         task = utils.from_google_task(created_task, task_list_id, self._timezone)
         return task
@@ -296,7 +296,6 @@ class TasksApiService:
         task_list_data = self._service.tasklists().get(tasklist=task_list_id).execute()
 
         return utils.from_google_task_list(task_list_data, self._timezone)
-
 
     def create_task_list(self, title: str) -> TaskList:
         """

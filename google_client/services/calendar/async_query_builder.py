@@ -32,6 +32,3 @@ class AsyncEventQueryBuilder(EventQueryBuilder):
 
     async def exists(self) -> bool:
         return await self.limit(1).count() > 0
-
-    def __repr__(self):
-        return f"EventQueryBuilder(query='{self._query}', limit={self._max_results}, calendar_id='{self._calendar_id}')"

@@ -7,12 +7,9 @@ from google.auth.credentials import Credentials
 from googleapiclient.discovery import build
 
 from . import utils
-from .constants import (
-    DEFAULT_MAX_RESULTS, MAX_RESULTS_LIMIT, DEFAULT_TASK_LIST_ID,
-    TASK_STATUS_COMPLETED, TASK_STATUS_NEEDS_ACTION
-)
+from .constants import DEFAULT_TASK_LIST_ID, TASK_STATUS_COMPLETED, TASK_STATUS_NEEDS_ACTION
 from .types import Task, TaskList
-from ...utils.datetime import datetime_to_iso, datetime_to_zone
+from ...utils.datetime import datetime_to_iso
 
 
 class AsyncTasksApiService:
@@ -41,7 +38,7 @@ class AsyncTasksApiService:
     async def list_tasks(
             self,
             task_list_id: str = DEFAULT_TASK_LIST_ID,
-            max_results: Optional[int] = DEFAULT_MAX_RESULTS,
+            max_results: Optional[int] = 100,
             completed_min: Optional[datetime] = None,
             completed_max: Optional[datetime] = None,
             due_min: Optional[datetime] = None,
@@ -81,7 +78,8 @@ class AsyncTasksApiService:
                 self._executor,
                 lambda: self._service().tasks().list(**request_params, pageToken=result['nextPageToken']).execute()
             )
-            tasks.extend([utils.from_google_task(task, task_list_id, self._timezone) for task in result.get('items', [])])
+            tasks.extend(
+                [utils.from_google_task(task, task_list_id, self._timezone) for task in result.get('items', [])])
 
         return tasks
 
@@ -267,7 +265,7 @@ class AsyncTasksApiService:
         return results
 
     async def batch_create_tasks(self, tasks_data: List[Dict[str, Any]], task_list_id: str = DEFAULT_TASK_LIST_ID) -> \
-    List[Task]:
+            List[Task]:
         tasks = []
         for task_data in tasks_data:
             task = asyncio.create_task(self.create_task(task_list_id=task_list_id, **task_data))

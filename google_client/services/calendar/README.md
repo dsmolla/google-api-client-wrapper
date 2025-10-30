@@ -730,16 +730,17 @@ conflicts = check_for_conflicts(user.calendar, days_ahead=14)
 
 ### Constants
 
-| Constant                            | Value   | Description                             |
-|-------------------------------------|---------|-----------------------------------------|
-| `MAX_RESULTS_LIMIT`                 | 2500    | Maximum events per query                |
-| `DEFAULT_MAX_RESULTS`               | 100     | Default result limit                    |
-| `MAX_SUMMARY_LENGTH`                | 1024    | Maximum event summary length            |
-| `MAX_DESCRIPTION_LENGTH`            | 8192    | Maximum event description length        |
-| `MAX_LOCATION_LENGTH`               | 1024    | Maximum location length                 |
-| `DEFAULT_FREEBUSY_DURATION_MINUTES` | 60      | Default free slot duration              |
-| `MAX_FREEBUSY_DAYS_RANGE`           | 183     | Maximum freebusy query range (6 months) |
-| `MAX_CALENDARS_PER_FREEBUSY_QUERY`  | 50      | Maximum calendars per freebusy query    |
+Available constants from `google_client.services.calendar.constants`:
+
+| Constant              | Value     | Description                |
+|-----------------------|-----------|----------------------------|
+| `DEFAULT_CALENDAR_ID` | "primary" | Default calendar ID        |
+
+**Note:**
+- The `list_events()` method defaults to `max_results=100` and `end` date defaults to 7 days from start
+- For event status use literal strings: `"confirmed"`, `"tentative"`, `"cancelled"`
+- For attendee responses use: `"needsAction"`, `"declined"`, `"tentative"`, `"accepted"`
+- The `find_free_slots()` method requires `duration_minutes` parameter (no default value)
 
 ---
 

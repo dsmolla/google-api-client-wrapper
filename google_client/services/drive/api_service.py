@@ -7,9 +7,8 @@ from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload, MediaIoBaseUpload, MediaIoBaseDownload
 
 from . import utils
-from .constants import DEFAULT_MAX_RESULTS, DEFAULT_FILE_FIELDS, FOLDER_MIME_TYPE, DEFAULT_CHUNK_SIZE
+from .constants import DEFAULT_FILE_FIELDS, FOLDER_MIME_TYPE, DEFAULT_CHUNK_SIZE
 from .exceptions import FileNotFoundError, FolderNotFoundError, PermissionDeniedError
-from .query_builder import DriveQueryBuilder
 from .types import DriveFile, DriveFolder, Permission, DriveItem
 from ...utils.datetime import datetime_to_readable
 
@@ -31,7 +30,7 @@ class DriveApiService:
         self._service = build("drive", "v3", credentials=credentials)
         self._timezone = timezone
 
-    def query(self) -> DriveQueryBuilder:
+    def query(self):
         """
         Create a new DriveQueryBuilder for building complex file queries with a fluent API.
 
@@ -46,12 +45,13 @@ class DriveApiService:
                 .file_type("pdf")
                 .execute())
         """
+        from .query_builder import DriveQueryBuilder
         return DriveQueryBuilder(self, self._timezone)
 
     def list(
             self,
             query: Optional[str] = None,
-            max_results: Optional[int] = DEFAULT_MAX_RESULTS,
+            max_results: Optional[int] = 100,
             order_by: Optional[str] = None,
     ) -> List[DriveItem]:
         """
@@ -59,7 +59,7 @@ class DriveApiService:
 
         Args:
             query: Drive API query string
-            max_results: Maximum number of items to return
+            max_results: Maximum number of items to return. Defaults to 100
             order_by: Field to order results by
 
         Returns:
@@ -204,28 +204,33 @@ class DriveApiService:
         file_obj = utils.convert_api_file_to_drive_file(result)
         return file_obj
 
-    def download_file(self, file: DriveFile | str, download_folder: str, file_name: str = None) -> str:
+    def download_file(
+            self,
+            file: DriveFile | str,
+            destination_folder: str = str(Path.home() / "Downloads" / "DriveFiles"),
+            file_name: str = None
+    ) -> str:
         """
         Download a file from Drive to local disk.
 
         Args:
             file: DriveFile object to download
-            download_folder: Local directory where to save the file
+            destination_folder: Local directory where to save the file
             file_name: Optional file name with extension
 
         Returns:
             Local path of the downloaded file
         """
 
-        download_folder = Path(download_folder)
-        download_folder.mkdir(parents=True, exist_ok=True)
+        destination_folder = Path(destination_folder)
+        destination_folder.mkdir(parents=True, exist_ok=True)
 
         if isinstance(file, str):
             file = self.get(file)
 
         if not file_name:
             file_name = file.name
-        file_path = str(download_folder.joinpath(file_name))
+        file_path = str(destination_folder.joinpath(file_name))
         with open(file_path, "wb") as f:
             f.write(self.get_file_payload(file))
 
@@ -461,7 +466,7 @@ class DriveApiService:
             folder: DriveFolder | str,
             include_folders: bool = True,
             include_files: bool = True,
-            max_results: Optional[int] = DEFAULT_MAX_RESULTS,
+            max_results: Optional[int] = 100,
             order_by: Optional[str] = None
     ) -> List[DriveItem]:
         """

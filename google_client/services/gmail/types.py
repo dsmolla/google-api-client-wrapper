@@ -1,7 +1,8 @@
-from typing import Optional, List
 from datetime import datetime
-from pydantic import BaseModel, Field
+from typing import Optional, List
+
 from html2text import html2text
+from pydantic import BaseModel, Field
 
 from google_client.utils.datetime import datetime_to_readable
 

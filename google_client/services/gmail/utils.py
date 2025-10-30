@@ -11,11 +11,10 @@ from typing import Optional, List
 
 import pytz
 
+from google_client.utils.datetime import datetime_to_readable
+from google_client.utils.validation import is_valid_email, sanitize_header_value
 from .constants import MAX_SUBJECT_LENGTH, MAX_BODY_LENGTH
 from .types import EmailMessage, EmailAttachment, EmailAddress, EmailThread
-from ...utils.datetime import datetime_to_readable
-# Import from shared utilities
-from ...utils.validation import is_valid_email, sanitize_header_value
 
 
 def extract_body(payload: dict) -> tuple[Optional[str], Optional[str]]:

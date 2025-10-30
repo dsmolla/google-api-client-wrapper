@@ -1,5 +1,6 @@
 from datetime import datetime, date, time
 from typing import Optional, Dict, List, Any, Literal
+
 from pydantic import BaseModel, Field
 
 from google_client.utils.datetime import datetime_to_readable, current_datetime
@@ -389,4 +390,3 @@ class FreeBusyResponse(BaseModel):
             True if there were errors, False otherwise
         """
         return bool(self.errors)
-

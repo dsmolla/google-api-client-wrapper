@@ -794,12 +794,14 @@ setup_auto_reply(user.gmail, auto_reply_msg)
 
 ### Constants
 
-| Constant              | Value    | Description                     |
-|-----------------------|----------|---------------------------------|
-| `MAX_RESULTS_LIMIT`   | 2500     | Maximum emails per query        |
-| `DEFAULT_MAX_RESULTS` | 30       | Default result limit            |
-| `MAX_BODY_LENGTH`     | 25000000 | Maximum email body size (~25MB) |
-| `MAX_SUBJECT_LENGTH`  | 998      | Maximum subject length          |
+Available constants from `google_client.services.gmail.constants`:
+
+| Constant            | Value    | Description                     |
+|---------------------|----------|---------------------------------|
+| `MAX_BODY_LENGTH`   | 25000000 | Maximum email body size (~25MB) |
+| `MAX_SUBJECT_LENGTH`| 998      | Maximum subject length          |
+
+**Note:** The `list_emails()` and `list_threads()` methods default to `max_results=100`. There is no enforced maximum limit - use pagination for large result sets.
 
 ---
 

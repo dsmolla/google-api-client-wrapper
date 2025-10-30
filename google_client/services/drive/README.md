@@ -203,9 +203,9 @@ file = drive.upload_file_content(
 
 ```python
 local_path = drive.download_file(
-    file=file,
-    download_folder="./downloads",
-    file_name="custom_name.pdf"
+  file=file,
+  destination_folder="./downloads",
+  file_name="custom_name.pdf"
 )
 ```
 
@@ -565,30 +565,29 @@ All synchronous methods have async equivalents:
 
 ## Error Handling
 
-The Drive service includes comprehensive error handling:
+The Drive service provides basic error handling for common scenarios:
 
 ```python
 from google_client.services.drive.exceptions import (
     DriveError,
     FileNotFoundError,
     FolderNotFoundError,
-    PermissionDeniedError,
-    UploadFailedError,
-    DownloadFailedError,
-    SharingError
+    PermissionDeniedError
 )
 
 try:
     file = drive.get("invalid_file_id")
 except FileNotFoundError:
     print("File not found")
+except FolderNotFoundError:
+    print("Folder not found")
 except PermissionDeniedError:
     print("Access denied")
-except UploadFailedError:
-    print("Upload failed")
 except DriveError as e:
     print(f"Drive API error: {e}")
 ```
+
+**Note:** For more specific error handling (uploads, downloads, sharing), catch the base `DriveError` exception and inspect the error message or underlying Google API errors.
 
 ## Examples
 
@@ -788,12 +787,19 @@ analyze_drive_usage(drive)
 
 ### Constants
 
-| Constant              | Value      | Description                     |
-|-----------------------|------------|---------------------------------|
-| `MAX_RESULTS_LIMIT`   | 1000       | Maximum items per query         |
-| `DEFAULT_MAX_RESULTS` | 30         | Default result limit            |
-| `MAX_FILE_SIZE`       | 5368709120 | Maximum file size (5GB)         |
-| `DEFAULT_CHUNK_SIZE`  | 1048576    | Default upload chunk size (1MB) |
+Available constants from `google_client.services.drive.constants`:
+
+| Constant                   | Value                                             | Description                     |
+|----------------------------|---------------------------------------------------|---------------------------------|
+| `MAX_FILE_SIZE`            | 5368709120                                        | Maximum file size (5GB)         |
+| `DEFAULT_CHUNK_SIZE`       | 1048576                                           | Default upload chunk size (1MB) |
+| `FOLDER_MIME_TYPE`         | "application/vnd.google-apps.folder"              | MIME type for folders           |
+| `GOOGLE_DOCS_MIME_TYPE`    | "application/vnd.google-apps.document"            | MIME type for Google Docs       |
+| `GOOGLE_SHEETS_MIME_TYPE`  | "application/vnd.google-apps.spreadsheet"         | MIME type for Google Sheets     |
+| `GOOGLE_SLIDES_MIME_TYPE`  | "application/vnd.google-apps.presentation"        | MIME type for Google Slides     |
+| `DEFAULT_FILE_FIELDS`      | "id,name,size,mimeType,createdTime,..."          | Default fields returned by API  |
+
+**Note:** For permission roles (`"reader"`, `"writer"`, `"commenter"`, `"owner"`) and special folder IDs (`"root"`, `"trash"`), use string literals directly instead of constants.
 
 ---
 

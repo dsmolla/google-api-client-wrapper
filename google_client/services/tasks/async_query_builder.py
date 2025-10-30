@@ -1,7 +1,7 @@
 from typing import Optional, List
 
-from .query_builder import TaskQueryBuilder
 from .async_api_service import AsyncTasksApiService
+from .query_builder import TaskQueryBuilder
 from .types import Task
 
 
@@ -30,7 +30,6 @@ class AsyncTaskQueryBuilder(TaskQueryBuilder):
             due_min=self._due_min,
             due_max=self._due_max,
             show_completed=self._show_completed,
-            show_hidden=self._show_hidden
         )
 
         return tasks

@@ -72,10 +72,9 @@ import json
 with open('credentials.json', 'r') as f:
     client_secrets = json.load(f)
 
-# Initialize OAuth manager
+# Initialize OAuth manager (redirect_uri defaults to localhost:8080)
 oauth_manager = GoogleOAuthManager(
-    client_secrets_dict=client_secrets,
-    redirect_uri='http://localhost:8080'  # Will be overridden
+    client_secrets_dict=client_secrets
 )
 
 # Authenticate using local server - browser opens automatically!

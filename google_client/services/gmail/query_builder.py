@@ -4,7 +4,6 @@ from typing import Optional, List
 import pytz
 
 from . import GmailApiService, AsyncGmailApiService
-from .constants import MAX_RESULTS_LIMIT, DEFAULT_MAX_RESULTS
 from ...utils.datetime import current_datetime
 
 
@@ -24,7 +23,7 @@ class EmailQueryBuilder:
 
     def __init__(self, api_service_class: GmailApiService | AsyncGmailApiService, timezone: str):
         self._api_service = api_service_class
-        self._max_results: Optional[int] = DEFAULT_MAX_RESULTS
+        self._max_results: Optional[int] = 100
         self._query_parts: List[str] = []
         self._include_spam_trash: bool = False
         self._label_ids: List[str] = []
@@ -38,8 +37,8 @@ class EmailQueryBuilder:
         Returns:
             Self for method chaining
         """
-        if count < 1 or count > MAX_RESULTS_LIMIT:
-            raise ValueError(f"Limit must be between 1 and {MAX_RESULTS_LIMIT}")
+        if count < 1:
+            raise ValueError(f"Limit must be at least 1")
         self._max_results = count
         return self
 
@@ -294,7 +293,7 @@ class EmailQueryBuilder:
         Returns:
             Self for method chaining
         """
-        days_since_month_started = current_datetime(self._timezone).day - 1 # Days in current month
+        days_since_month_started = current_datetime(self._timezone).day - 1  # Days in current month
         return self.last_days(days_since_month_started)
 
     def larger_than(self, size_mb: int) -> "EmailQueryBuilder":

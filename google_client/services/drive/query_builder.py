@@ -1,11 +1,9 @@
 from datetime import datetime, timedelta
-from typing import Optional, List, Union, TYPE_CHECKING
+from typing import Optional, List, Union
 
-from .constants import FOLDER_MIME_TYPE, MAX_RESULTS_LIMIT, DEFAULT_MAX_RESULTS
-from ...utils.datetime import datetime_to_iso, current_datetime
-
-if TYPE_CHECKING:
-    from .api_service import DriveItem, DriveFolder
+from google_client.utils.datetime import datetime_to_iso, current_datetime
+from .api_service import DriveItem, DriveFolder
+from .constants import FOLDER_MIME_TYPE
 
 
 class DriveQueryBuilder:
@@ -25,7 +23,7 @@ class DriveQueryBuilder:
     def __init__(self, api_service_class, timezone: str = "UTC"):
         self._api_service = api_service_class
         self._timezone = timezone
-        self._max_results: Optional[int] = DEFAULT_MAX_RESULTS
+        self._max_results: Optional[int] = 100
         self._query_parts: List[str] = []
         self._order_by: Optional[str] = None
 
@@ -33,12 +31,12 @@ class DriveQueryBuilder:
         """
         Set the maximum number of files to retrieve.
         Args:
-            count: Maximum number of files (1-1000)
+            count: Maximum number of files
         Returns:
             Self for method chaining
         """
-        if count < 1 or count > MAX_RESULTS_LIMIT:
-            raise ValueError(f"Limit must be between 1 and {MAX_RESULTS_LIMIT}")
+        if count < 1:
+            raise ValueError(f"Limit must be at least 1")
         self._max_results = count
         return self
 
