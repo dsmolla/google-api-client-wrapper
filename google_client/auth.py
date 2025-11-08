@@ -3,6 +3,7 @@ import json
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import Flow, InstalledAppFlow
+from google.oauth2 import id_token
 
 
 class GoogleOAuthManager:
@@ -31,7 +32,7 @@ class GoogleOAuthManager:
         )
         return flow
 
-    def generate_auth_url(self, scopes: list[str], state: str = None) -> tuple[str, str]:
+    def generate_auth_url(self, scopes: list[str], state: str = None) -> str:
         """
         Generate an OAuth2 authorization URL for user consent.
 
@@ -44,7 +45,7 @@ class GoogleOAuthManager:
             include_granted_scopes='true',
             prompt='consent'
         )
-        return auth_url, state
+        return auth_url
 
     def complete_auth_flow(self, code: str, scopes: list[str] = None) -> dict:
         """
@@ -143,41 +144,40 @@ class GoogleOAuthManager:
 
 
 class Scopes:
-    class Scopes:
-        # Gmail scopes
-        GMAIL = 'https://mail.google.com/'
-        GMAIL_READONLY = 'https://www.googleapis.com/auth/gmail.readonly'
-        GMAIL_SEND = 'https://www.googleapis.com/auth/gmail.send'
-        GMAIL_COMPOSE = 'https://www.googleapis.com/auth/gmail.compose'
-        GMAIL_INSERT = 'https://www.googleapis.com/auth/gmail.insert'
-        GMAIL_LABELS = 'https://www.googleapis.com/auth/gmail.labels'
-        GMAIL_MODIFY = 'https://www.googleapis.com/auth/gmail.modify'
-        GMAIL_METADATA = 'https://www.googleapis.com/auth/gmail.metadata'
-        GMAIL_SETTINGS_BASIC = 'https://www.googleapis.com/auth/gmail.settings.basic'
-        GMAIL_SETTINGS_SHARING = 'https://www.googleapis.com/auth/gmail.settings.sharing'
+    # Gmail scopes
+    GMAIL = 'https://mail.google.com/'
+    GMAIL_READONLY = 'https://www.googleapis.com/auth/gmail.readonly'
+    GMAIL_SEND = 'https://www.googleapis.com/auth/gmail.send'
+    GMAIL_COMPOSE = 'https://www.googleapis.com/auth/gmail.compose'
+    GMAIL_INSERT = 'https://www.googleapis.com/auth/gmail.insert'
+    GMAIL_LABELS = 'https://www.googleapis.com/auth/gmail.labels'
+    GMAIL_MODIFY = 'https://www.googleapis.com/auth/gmail.modify'
+    GMAIL_METADATA = 'https://www.googleapis.com/auth/gmail.metadata'
+    GMAIL_SETTINGS_BASIC = 'https://www.googleapis.com/auth/gmail.settings.basic'
+    GMAIL_SETTINGS_SHARING = 'https://www.googleapis.com/auth/gmail.settings.sharing'
 
-        # Calendar scopes
-        CALENDAR = 'https://www.googleapis.com/auth/calendar'
-        CALENDAR_READONLY = 'https://www.googleapis.com/auth/calendar.readonly'
-        CALENDAR_EVENTS = 'https://www.googleapis.com/auth/calendar.events'
-        CALENDAR_EVENTS_READONLY = 'https://www.googleapis.com/auth/calendar.events.readonly'
-        CALENDAR_SETTINGS_READONLY = 'https://www.googleapis.com/auth/calendar.settings.readonly'
+    # Calendar scopes
+    CALENDAR = 'https://www.googleapis.com/auth/calendar'
+    CALENDAR_READONLY = 'https://www.googleapis.com/auth/calendar.readonly'
+    CALENDAR_EVENTS = 'https://www.googleapis.com/auth/calendar.events'
+    CALENDAR_EVENTS_READONLY = 'https://www.googleapis.com/auth/calendar.events.readonly'
+    CALENDAR_SETTINGS_READONLY = 'https://www.googleapis.com/auth/calendar.settings.readonly'
 
-        # Tasks scopes
-        TASKS = 'https://www.googleapis.com/auth/tasks'
-        TASKS_READONLY = 'https://www.googleapis.com/auth/tasks.readonly'
+    # Tasks scopes
+    TASKS = 'https://www.googleapis.com/auth/tasks'
+    TASKS_READONLY = 'https://www.googleapis.com/auth/tasks.readonly'
 
-        # Drive scopes
-        DRIVE = 'https://www.googleapis.com/auth/drive'
-        DRIVE_READONLY = 'https://www.googleapis.com/auth/drive.readonly'
-        DRIVE_FILE = 'https://www.googleapis.com/auth/drive.file'
-        DRIVE_APPDATA = 'https://www.googleapis.com/auth/drive.appdata'
-        DRIVE_METADATA = 'https://www.googleapis.com/auth/drive.metadata'
-        DRIVE_METADATA_READONLY = 'https://www.googleapis.com/auth/drive.metadata.readonly'
-        DRIVE_PHOTOS_READONLY = 'https://www.googleapis.com/auth/drive.photos.readonly'
-        DRIVE_SCRIPTS = 'https://www.googleapis.com/auth/drive.scripts'
+    # Drive scopes
+    DRIVE = 'https://www.googleapis.com/auth/drive'
+    DRIVE_READONLY = 'https://www.googleapis.com/auth/drive.readonly'
+    DRIVE_FILE = 'https://www.googleapis.com/auth/drive.file'
+    DRIVE_APPDATA = 'https://www.googleapis.com/auth/drive.appdata'
+    DRIVE_METADATA = 'https://www.googleapis.com/auth/drive.metadata'
+    DRIVE_METADATA_READONLY = 'https://www.googleapis.com/auth/drive.metadata.readonly'
+    DRIVE_PHOTOS_READONLY = 'https://www.googleapis.com/auth/drive.photos.readonly'
+    DRIVE_SCRIPTS = 'https://www.googleapis.com/auth/drive.scripts'
 
-        # User info scopes
-        USERINFO_EMAIL = 'https://www.googleapis.com/auth/userinfo.email'
-        USERINFO_PROFILE = 'https://www.googleapis.com/auth/userinfo.profile'
+    # User info scopes
+    USERINFO_EMAIL = 'https://www.googleapis.com/auth/userinfo.email'
+    USERINFO_PROFILE = 'https://www.googleapis.com/auth/userinfo.profile'
 

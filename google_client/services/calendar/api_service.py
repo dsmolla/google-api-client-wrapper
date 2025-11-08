@@ -109,7 +109,7 @@ class CalendarApiService:
 
     def list_events(
             self,
-            max_results: Optional[int] = 109,
+            max_results: Optional[int] = 100,
             start: Optional[datetime] = None,
             end: Optional[datetime] = None,
             query: Optional[str] = None,

@@ -1,4 +1,5 @@
 import json
+import requests
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
@@ -53,6 +54,14 @@ class APIServiceLayer:
         self._async_gmail, self._async_calendar, self._async_tasks, self._async_drive = None, None, None, None
 
         return json.loads(self._credentials.to_json())
+
+    def revoke_token(self):
+        revoke = requests.post('https://oauth2.googleapis.com/revoke',
+                      params={'token': self._credentials.token},
+                      headers={'content-type': 'application/x-www-form-urlencoded'})
+        if revoke.status_code == 200:
+            return True
+        return False
 
     @property
     def gmail(self):
