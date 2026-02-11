@@ -218,9 +218,10 @@ class CalendarEvent(BaseModel):
             event_dict["organizer"] = self.organizer
         if self.status:
             event_dict["status"] = self.status
-
         if self.attendees:
             event_dict["attendees"] = [attendee.to_dict() for attendee in self.attendees]
+        if self.google_meets_link:
+            event_dict['googleMeetsLink'] = self.google_meets_link
 
         return event_dict
 

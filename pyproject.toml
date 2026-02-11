@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "google-api-client-wrapper"
-version = "2.1.0"
+version = "2.1.1"
 description = "A comprehensive Python wrapper for Google APIs with async support, providing clean and intuitive access to Gmail, Google Drive, Google Calendar, and Google Tasks services."
 readme = {file = "README.md", content-type = "text/markdown"}
 authors = [{name = "Dagmawi Molla", email = "dagmawishewadeg@gmail.com"}]
