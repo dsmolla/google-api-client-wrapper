@@ -69,6 +69,7 @@ class CalendarEvent(BaseModel):
     Represents a calendar event with various attributes.
     """
     event_id: Optional[str] = Field(None, description="Unique identifier for the event")
+    calendar_id: Optional[str] = Field(None, description="Unique identifier for the calendar the event belongs to")
     summary: Optional[str] = Field(None, description="A brief title or summary of the event")
     description: Optional[str] = Field(None, description="A detailed description of the event")
     location: Optional[str] = Field(None, description="The physical or virtual location of the event")
@@ -77,6 +78,7 @@ class CalendarEvent(BaseModel):
     html_link: Optional[str] = Field(None, description="A hyperlink to the event on Google Calendar")
     attendees: List[Attendee] = Field(default_factory=list,
                                       description="A list of Attendee objects representing the people invited to the event")
+    google_meets_link: Optional[str] = Field(None, description="The Google Meets link for the event")
     recurrence: List[str] = Field(default_factory=list,
                                   description="A list of strings defining the recurrence rules for the event in RFC 5545 format")
     recurring_event_id: Optional[str] = Field(None,

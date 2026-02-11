@@ -1,3 +1,4 @@
+import uuid
 from datetime import datetime, timedelta
 from typing import Optional, List, Any, Dict, Union
 
@@ -162,10 +163,10 @@ class CalendarApiService:
             request_params['q'] = query
 
         result = self._service.events().list(**request_params).execute()
-        events = [utils.from_google_event(event, self._timezone) for event in result.get('items', [])]
+        events = [utils.from_google_event(event, calendar_id, self._timezone) for event in result.get('items', [])]
         while result.get('nextPageToken') and len(events) < max_results:
             result = self._service.events().list(**request_params, pageToken=result['nextPageToken']).execute()
-            events.extend([utils.from_google_event(event, self._timezone) for event in result.get('items', [])])
+            events.extend([utils.from_google_event(event, calendar_id, self._timezone) for event in result.get('items', [])])
 
         return events
 
@@ -186,7 +187,7 @@ class CalendarApiService:
             eventId=event_id
         ).execute()
 
-        return utils.from_google_event(event_data, self._timezone)
+        return utils.from_google_event(event_data, calendar_id, self._timezone)
 
     def create_event(
             self,
@@ -196,6 +197,7 @@ class CalendarApiService:
             description: str = None,
             location: str = None,
             attendees: List[Attendee] = None,
+            create_google_meet: bool = False,
             recurrence: List[str] = None,
             calendar_id: str = DEFAULT_CALENDAR_ID
     ) -> CalendarEvent:
@@ -209,6 +211,7 @@ class CalendarApiService:
             description: Detailed description of the event.
             location: Physical or virtual location of the event.
             attendees: List of Attendee objects for invited people.
+            create_google_meet: Whether to include a Google Meets meeting in the event.
             recurrence: List of recurrence rules in RFC 5545 format.
             calendar_id: Calendar ID to create event in (default: 'primary').
 
@@ -232,14 +235,63 @@ class CalendarApiService:
             event_body['attendees'] = [attendee.to_dict() for attendee in attendees]
         if recurrence:
             event_body['recurrence'] = recurrence
+        if create_google_meet:
+            event_body['conferenceData'] = {
+                "createRequest": {
+                    "requestId": uuid.uuid4().hex,
+                    "conferenceSolutionKey": {
+                        "type": "hangoutsMeet"
+                    }
+                }
+            }
 
         created_event = self._service.events().insert(
             calendarId=calendar_id,
-            body=event_body
+            body=event_body,
+            conferenceDataVersion=1
         ).execute()
 
-        calendar_event = utils.from_google_event(created_event, self._timezone)
+        calendar_event = utils.from_google_event(created_event, calendar_id, self._timezone)
         return calendar_event
+
+    def add_meeting(self, event: CalendarEvent | str, calendar_id: str = None) -> CalendarEvent:
+        """
+        Add a Google Meet conference to an existing calendar event.
+
+        Args:
+            event: A CalendarEvent object or an event ID string.
+            calendar_id: Calendar ID (required when event is a string, ignored when event is a CalendarEvent).
+
+        Returns:
+            The updated CalendarEvent with a Google Meet link.
+
+        Raises:
+            ValueError: If event is a string and calendar_id is not provided.
+        """
+        event_patch = {
+            'conferenceData': {
+                'createRequest': {
+                    'requestId': uuid.uuid4().hex,
+                    'conferenceSolutionKey': {'type': 'hangoutsMeet'}
+                }
+            }
+        }
+        if isinstance(event, CalendarEvent):
+            event_id = event.event_id
+            calendar_id = event.calendar_id
+        else:
+            if calendar_id is None:
+                raise ValueError("Calendar ID is required.")
+            event_id = event
+
+        payload = self._service.events().patch(
+            calendarId=calendar_id,
+            eventId=event_id,
+            body=event_patch,
+            conferenceDataVersion=1
+        ).execute()
+        event = utils.from_google_event(payload, calendar_id, self._timezone)
+        return event
 
     def update_event(
             self,
@@ -274,7 +326,7 @@ class CalendarApiService:
             body=event_body
         ).execute()
 
-        updated_calendar_event = utils.from_google_event(updated_event, self._timezone)
+        updated_calendar_event = utils.from_google_event(updated_event, calendar_id, self._timezone)
         return updated_calendar_event
 
     def delete_event(

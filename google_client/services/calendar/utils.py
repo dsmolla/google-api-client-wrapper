@@ -40,7 +40,7 @@ def parse_attendees_from_api(attendees_data: List[Dict[str, Any]]) -> List[Atten
     return attendees
 
 
-def from_google_event(google_event: Dict[str, Any], timezone: str) -> CalendarEvent:
+def from_google_event(google_event: Dict[str, Any], calendar_id: str, timezone: str) -> CalendarEvent:
     """
     Create a CalendarEvent instance from a Google Calendar API response.
     """
@@ -74,9 +74,19 @@ def from_google_event(google_event: Dict[str, Any], timezone: str) -> CalendarEv
         # Parse status
         status = google_event.get("status", "confirmed")
 
+        # Parse Google Meets link
+        google_meets_link = None
+        conference_data = google_event.get('conferenceData', {})
+        entry_points = conference_data.get('entryPoints', [])
+
+        for entry in entry_points:
+            if entry.get('entryPointType') == 'video':
+                google_meets_link = entry.get('uri')
+
         # Create and return the event
         event = CalendarEvent(
             event_id=event_id,
+            calendar_id=calendar_id,
             summary=summary,
             description=description,
             location=location,
@@ -84,6 +94,7 @@ def from_google_event(google_event: Dict[str, Any], timezone: str) -> CalendarEv
             end=end,
             html_link=html_link,
             attendees=attendees,
+            google_meets_link=google_meets_link,
             recurrence=recurrence,
             recurring_event_id=recurring_event_id,
             creator=creator,

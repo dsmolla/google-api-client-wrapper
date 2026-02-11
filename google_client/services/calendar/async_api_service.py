@@ -1,4 +1,5 @@
 import asyncio
+import uuid
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta
 from typing import Optional, List, Any, Dict, Union
@@ -164,13 +165,13 @@ class AsyncCalendarApiService:
             lambda: self._service().events().list(**request_params).execute()
         )
 
-        events = [utils.from_google_event(event, self._timezone) for event in result.get('items', [])]
+        events = [utils.from_google_event(event, calendar_id, self._timezone) for event in result.get('items', [])]
         while result.get('nextPageToken') and len(events) < max_results:
             result = await loop.run_in_executor(
                 self._executor,
                 lambda: self._service().events().list(**request_params, pageToken=result['nextPageToken']).execute()
             )
-            events.extend([utils.from_google_event(event, self._timezone) for event in result.get('items', [])])
+            events.extend([utils.from_google_event(event, calendar_id, self._timezone) for event in result.get('items', [])])
 
         return events
 
@@ -184,7 +185,7 @@ class AsyncCalendarApiService:
             ).execute()
         )
 
-        return utils.from_google_event(event_data, self._timezone)
+        return utils.from_google_event(event_data, calendar_id, self._timezone)
 
     async def create_event(
             self,
@@ -194,6 +195,7 @@ class AsyncCalendarApiService:
             description: str = None,
             location: str = None,
             attendees: List[Attendee] = None,
+            create_google_meet: bool = False,
             recurrence: List[str] = None,
             calendar_id: str = DEFAULT_CALENDAR_ID
     ) -> CalendarEvent:
@@ -215,18 +217,70 @@ class AsyncCalendarApiService:
             event_body['attendees'] = [attendee.to_dict() for attendee in attendees]
         if recurrence:
             event_body['recurrence'] = recurrence
+        if create_google_meet:
+            event_body['conferenceData'] = {
+                "createRequest": {
+                    "requestId": uuid.uuid4().hex,
+                    "conferenceSolutionKey": {
+                        "type": "hangoutsMeet"
+                    }
+                }
+            }
 
         loop = asyncio.get_event_loop()
         created_event = await loop.run_in_executor(
             self._executor,
             lambda: self._service().events().insert(
                 calendarId=calendar_id,
-                body=event_body
+                body=event_body,
+                conferenceDataVersion=1
             ).execute()
         )
 
-        calendar_event = utils.from_google_event(created_event, self._timezone)
+        calendar_event = utils.from_google_event(created_event, calendar_id, self._timezone)
         return calendar_event
+
+    async def add_meeting(self, event: CalendarEvent | str, calendar_id: str = None) -> CalendarEvent:
+        """
+        Add a Google Meet conference to an existing calendar event.
+
+        Args:
+            event: A CalendarEvent object or an event ID string.
+            calendar_id: Calendar ID (required when event is a string, ignored when event is a CalendarEvent).
+
+        Returns:
+            The updated CalendarEvent with a Google Meet link.
+
+        Raises:
+            ValueError: If event is a string and calendar_id is not provided.
+        """
+        event_patch = {
+            'conferenceData': {
+                'createRequest': {
+                    'requestId': uuid.uuid4().hex,
+                    'conferenceSolutionKey': {'type': 'hangoutsMeet'}
+                }
+            }
+        }
+        if isinstance(event, CalendarEvent):
+            event_id = event.event_id
+            calendar_id = event.calendar_id
+        else:
+            if calendar_id is None:
+                raise ValueError("Calendar ID is required.")
+            event_id = event
+        loop = asyncio.get_event_loop()
+        payload = await loop.run_in_executor(
+            self._executor,
+            lambda: self._service().events().patch(
+                calendarId=calendar_id,
+                eventId=event_id,
+                body=event_patch,
+                conferenceDataVersion=1
+            ).execute()
+        )
+        event = utils.from_google_event(payload, calendar_id, self._timezone)
+        return event
 
     async def update_event(
             self,

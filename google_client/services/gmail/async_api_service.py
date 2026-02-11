@@ -2,7 +2,7 @@ import asyncio
 import base64
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
-from typing import Optional, List, Dict, Any, Union
+from typing import Optional, List, Dict, Any, Union, Literal
 
 import aiofiles
 from google.auth.credentials import Credentials
@@ -625,6 +625,57 @@ class AsyncGmailApiService:
             await loop.run_in_executor(
                 self._executor,
                 lambda: self._service().users().threads().untrash(userId='me', id=thread).execute()
+            )
+            return True
+        except Exception:
+            return False
+
+    async def watch(
+            self,
+            topic_name: str,
+            label_ids: list[str],
+            label_filter_action: Literal['include', 'exclude'] = 'include'
+    ) -> dict:
+        """
+        Set up a push notification watch on the given user mailbox.
+
+        Args:
+            topic_name: The name of the pub/sub topic to send notifications to.
+            label_ids: A list of label IDs to filter on.
+            label_filter_action: What kind of filter to apply to label IDs. 'include' or 'exclude'. Defaults to 'include'.
+
+        Returns:
+            A dict with the following fields:
+                - historyID
+                - expiration
+        """
+        loop = asyncio.get_event_loop()
+        response = await loop.run_in_executor(
+            self._executor,
+            lambda: self._service().users().watch(
+                userId='me',
+                body={
+                    'labelIds': label_ids,
+                    'topicName': topic_name,
+                    'labelFilterBehavior': label_filter_action
+                }
+            ).execute()
+        )
+
+        return response
+
+    async def stop_watch(self) -> bool:
+        """
+        Stops the watch on the given user mailbox.
+
+        Returns:
+            True if the operation was successful, False otherwise.
+        """
+        try:
+            loop = asyncio.get_event_loop()
+            await loop.run_in_executor(
+                self._executor,
+                lambda: self._service().users().stop(userId='me').execute()
             )
             return True
         except Exception:
