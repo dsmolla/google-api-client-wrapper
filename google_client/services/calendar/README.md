@@ -10,6 +10,7 @@ A comprehensive Google Calendar client library that provides clean, intuitive ac
   - [Asynchronous Usage](#asynchronous-usage)
 - [Core Components](#core-components)
 - [Event Operations](#event-operations)
+- [Google Meet Integration](#google-meet-integration)
 - [Query Builder](#query-builder)
 - [Free/Busy Scheduling](#freebusy-scheduling)
 - [Batch Operations](#batch-operations)
@@ -25,6 +26,7 @@ The Calendar service package provides both synchronous and asynchronous APIs for
 ### Key Features
 
 - **Intuitive Event Operations**: Create, update, delete, and manage calendar events
+- **Google Meet Integration**: Create events with Meet links or add Meet to existing events
 - **Powerful Query Builder**: Fluent API for complex event searches
 - **Free/Busy Scheduling**: Check availability and find optimal meeting times
 - **Batch Operations**: Efficient bulk calendar operations with concurrent async support
@@ -148,9 +150,11 @@ event = calendar.get_event("event_id_here")
 print(f"Summary: {event.summary}")
 print(f"Location: {event.location}")
 print(f"Start: {event.start}")
+print(f"Calendar: {event.calendar_id}")
 print(f"Duration: {event.duration()} minutes")
 print(f"Has attendees: {len(event.attendees) > 0}")
 print(f"Is happening now: {event.is_happening_now()}")
+print(f"Google Meet: {event.google_meets_link}")
 ```
 
 ### EventQueryBuilder
@@ -216,6 +220,34 @@ print(f"Duration: {event.duration()} minutes")
 print(f"Is today: {event.is_today()}")
 print(f"Is happening now: {event.is_happening_now()}")
 print(f"Has attendee: {event.has_attendee('john@company.com')}")
+```
+
+## Google Meet Integration
+
+### Creating Events with Google Meet
+
+```python
+# Create an event with a Google Meet link
+event = calendar.create_event(
+    start=datetime(2024, 12, 15, 14, 0),
+    end=datetime(2024, 12, 15, 15, 0),
+    summary="Team Standup",
+    create_google_meet=True
+)
+
+print(f"Join: {event.google_meets_link}")
+```
+
+### Adding Google Meet to Existing Events
+
+```python
+# Add Meet to an event using the CalendarEvent object
+event = calendar.get_event("event_id_here")
+updated_event = calendar.add_meeting(event)
+print(f"Meet link: {updated_event.google_meets_link}")
+
+# Or using an event ID string directly
+updated_event = calendar.add_meeting("event_id_here", calendar_id="primary")
 ```
 
 ## Query Builder
@@ -695,7 +727,8 @@ conflicts = check_for_conflicts(user.calendar, days_ahead=14)
 | `query()`               | Create query builder     | None                                                                                           | `EventQueryBuilder`   |
 | `list_events()`         | List events with filters | `max_results`, `start`, `end`, `query`, `calendar_id`                                          | `List[CalendarEvent]` |
 | `get_event()`           | Get specific event       | `event_id: str`, `calendar_id: str`                                                            | `CalendarEvent`       |
-| `create_event()`        | Create new event         | `start`, `end`, `summary`, `description`, `location`, `attendees`, `recurrence`, `calendar_id` | `CalendarEvent`       |
+| `create_event()`        | Create new event         | `start`, `end`, `summary`, `description`, `location`, `attendees`, `create_google_meet`, `recurrence`, `calendar_id` | `CalendarEvent`       |
+| `add_meeting()`         | Add Google Meet to event | `event: CalendarEvent \| str`, `calendar_id: str`                                              | `CalendarEvent`       |
 | `update_event()`        | Update existing event    | `event: CalendarEvent`, `calendar_id: str`                                                     | `CalendarEvent`       |
 | `delete_event()`        | Delete event             | `event: CalendarEvent`, `calendar_id: str`                                                     | `bool`                |
 | `batch_get_events()`    | Get multiple events      | `event_ids: List[str]`, `calendar_id: str`                                                     | `List[CalendarEvent]` |

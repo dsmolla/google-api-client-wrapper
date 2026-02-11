@@ -14,6 +14,7 @@ A comprehensive Gmail client library that provides clean, intuitive access to Gm
 - [Threading Support](#threading-support)
 - [Label Management](#label-management)
 - [Attachment Handling](#attachment-handling)
+- [Push Notifications](#push-notifications)
 - [Async API](#async-api)
 - [Error Handling](#error-handling)
 - [Examples](#examples)
@@ -30,6 +31,7 @@ The Gmail service package provides both synchronous and asynchronous APIs for Gm
 - **Thread Management**: Work with Gmail conversation threads
 - **Label Operations**: Create, modify, and manage Gmail labels
 - **Attachment Support**: Upload, download, and manage email attachments
+- **Push Notifications**: Set up Pub/Sub watches for real-time mailbox change notifications
 - **Batch Operations**: Efficient bulk email operations with concurrent async support
 - **Async/Await Support**: Full async implementation for high-performance applications
 - **Security First**: Built-in validation and secure handling of credentials
@@ -525,6 +527,38 @@ sent_emails = gmail.batch_send_emails(email_data_list)
 print(f"Sent {len(sent_emails)} emails in batch")
 ```
 
+## Push Notifications
+
+Set up real-time push notifications for mailbox changes using Google Cloud Pub/Sub.
+
+> **Prerequisite**: You need a Google Cloud Pub/Sub topic configured with the appropriate permissions. See [Gmail Push Notifications Guide](https://developers.google.com/gmail/api/guides/push) for setup instructions.
+
+### Setting Up a Watch
+
+```python
+# Watch for new emails in the inbox
+response = gmail.watch(
+    topic_name="projects/my-project/topics/gmail-notifications",
+    label_ids=["INBOX"]
+)
+
+print(f"Watch expires at: {response['expiration']}")
+print(f"History ID: {response['historyId']}")
+
+# Watch with label exclusion
+response = gmail.watch(
+    topic_name="projects/my-project/topics/gmail-notifications",
+    label_ids=["SPAM", "TRASH"],
+    label_filter_action="exclude"
+)
+```
+
+### Stopping a Watch
+
+```python
+success = gmail.stop_watch()
+```
+
 ## Async API
 
 All Gmail operations are available in async versions for high-performance applications. The async API provides true concurrent operations using Python's `async`/`await` syntax.
@@ -758,6 +792,8 @@ setup_auto_reply(user.gmail, auto_reply_msg)
 | `list_labels()`        | List all labels              | None                                                                                                                         | `List[Label]`        |
 | `delete_label()`       | Delete label                 | `label: Union[Label, str]`                                                                                                   | `bool`               |
 | `update_label()`       | Update label name            | `label: Union[Label, str]`, `new_name: str`                                                                                  | `Label`              |
+| `watch()`              | Set up push notifications    | `topic_name: str`, `label_ids: list[str]`, `label_filter_action: Literal['include', 'exclude']`                              | `dict`               |
+| `stop_watch()`         | Stop push notifications      | None                                                                                                                         | `bool`               |
 
 ### EmailQueryBuilder
 
