@@ -1,3 +1,4 @@
+import json
 import uuid
 from datetime import datetime, timedelta
 from typing import Optional, List, Any, Dict, Union
@@ -370,11 +371,18 @@ class CalendarApiService:
         """
 
         calendar_events = []
-        for event_id in event_ids:
-            try:
-                calendar_events.append(self.get_event(event_id, calendar_id))
-            except Exception as e:
-                calendar_events.append(e)
+        for i in range(0, len(event_ids), 10):
+            batch = self._service.new_batch_http_request()
+            for event_id in event_ids[i: i + 10]:
+                batch.add(self._service.events().get(calendarId=calendar_id, eventId=event_id))
+            batch.execute()
+
+            for response in batch._responses.values():
+                event_json = json.loads(response[1].decode())
+                if "error" in event_json:
+                    calendar_events.append(("ERROR", event_json["error"]))
+                    continue
+                calendar_events.append(utils.from_google_event(event_json, calendar_id, self._timezone))
 
         return calendar_events
 
@@ -382,7 +390,7 @@ class CalendarApiService:
             self,
             events_data: List[Dict[str, Any]],
             calendar_id: str = DEFAULT_CALENDAR_ID
-    ) -> List[CalendarEvent | Exception]:
+    ) -> List[CalendarEvent | tuple]:
         """
         Creates multiple events.
 
@@ -391,17 +399,83 @@ class CalendarApiService:
             calendar_id: Calendar ID to create events in (default: 'primary').
 
         Returns:
-            List of created CalendarEvent objects.
+            List of created CalendarEvent objects or ("ERROR", error_dict) tuples on failure.
         """
 
         created_events = []
-        for event_data in events_data:
-            try:
-                created_events.append(self.create_event(calendar_id=calendar_id, **event_data))
-            except Exception as e:
-                created_events.append(e)
+        for i in range(0, len(events_data), 10):
+            batch = self._service.new_batch_http_request()
+            for event_data in events_data[i: i + 10]:
+                event_body = {
+                    'summary': event_data.get('summary') or "New Event",
+                    'start': {'dateTime': datetime_to_iso(event_data['start'], self._timezone), 'timeZone': self._timezone},
+                    'end': {'dateTime': datetime_to_iso(event_data['end'], self._timezone), 'timeZone': self._timezone},
+                }
+                if event_data.get('description'):
+                    event_body['description'] = event_data['description']
+                if event_data.get('location'):
+                    event_body['location'] = event_data['location']
+                if event_data.get('attendees'):
+                    event_body['attendees'] = [a.to_dict() for a in event_data['attendees']]
+                if event_data.get('recurrence'):
+                    event_body['recurrence'] = event_data['recurrence']
+                if event_data.get('create_google_meet'):
+                    event_body['conferenceData'] = {
+                        "createRequest": {
+                            "requestId": uuid.uuid4().hex,
+                            "conferenceSolutionKey": {"type": "hangoutsMeet"}
+                        }
+                    }
+                batch.add(self._service.events().insert(
+                    calendarId=calendar_id, body=event_body, conferenceDataVersion=1
+                ))
+            batch.execute()
+
+            for response in batch._responses.values():
+                event_json = json.loads(response[1].decode())
+                if "error" in event_json:
+                    created_events.append(("ERROR", event_json["error"]))
+                    continue
+                created_events.append(utils.from_google_event(event_json, calendar_id, self._timezone))
 
         return created_events
+
+    def batch_delete_events(
+            self,
+            events: List[Union[CalendarEvent, str]],
+            calendar_id: str = DEFAULT_CALENDAR_ID
+    ) -> List[bool | tuple]:
+        """
+        Deletes multiple calendar events.
+
+        Args:
+            events: List of CalendarEvent objects or event IDs to delete.
+            calendar_id: Calendar ID containing the events (default: 'primary').
+
+        Returns:
+            List of True for each success or ("ERROR", error_dict) for each failure.
+        """
+        results = []
+        event_ids = [e if isinstance(e, str) else e.event_id for e in events]
+
+        for i in range(0, len(event_ids), 10):
+            batch = self._service.new_batch_http_request()
+            for event_id in event_ids[i: i + 10]:
+                batch.add(self._service.events().delete(calendarId=calendar_id, eventId=event_id))
+            batch.execute()
+
+            for response in batch._responses.values():
+                body = response[1]
+                if not body:
+                    results.append(True)
+                    continue
+                response_json = json.loads(body.decode())
+                if "error" in response_json:
+                    results.append(("ERROR", response_json["error"]))
+                    continue
+                results.append(True)
+
+        return results
 
     def get_freebusy(
             self,

@@ -1,4 +1,5 @@
 import base64
+import json
 from pathlib import Path
 from typing import Optional, List, Dict, Any, Union, Literal
 
@@ -110,7 +111,7 @@ class GmailApiService:
             reply_to_message_id: Optional[str] = None,
             references: Optional[str] = None,
             thread_id: Optional[str] = None
-    ) -> EmailMessage:
+    ) -> dict[str, str]:
         """
         Sends a new email message.
 
@@ -127,7 +128,9 @@ class GmailApiService:
             thread_id: ID of the thread to which this message belongs (optional).
 
         Returns:
-            An EmailMessage object representing the message sent.
+            A dictionary containing the following fields:
+                message_id: The unique identifier of the message.
+                thread_id: ID of the thread to which this message belongs.
         """
 
         raw_message = utils.create_message(
@@ -147,7 +150,10 @@ class GmailApiService:
             body={'raw': raw_message, 'threadId': thread_id}
         ).execute()
 
-        return self.get_email(send_result['id'])
+        return {
+            "message_id": send_result['id'],
+            "thread_id": send_result['threadId'],
+        }
 
     def create_draft(
             self,
@@ -222,15 +228,23 @@ class GmailApiService:
         """
 
         emails = []
-        for message_id in message_ids:
-            try:
-                emails.append(self.get_email(message_id))
-            except Exception as e:
-                emails.append(e)
+        for i in range(0, len(message_ids), 10):
+            batch = self._service.new_batch_http_request()
+            for message_id in message_ids[i: i + 10]:
+                batch.add(self._service.users().messages().get(userId='me', id=message_id, format='full'))
+            batch.execute()
+
+            for response in batch._responses.values():
+                email_json = json.loads(response[1].decode())
+                if "error" in email_json:
+                    emails.append(("ERROR", email_json["error"]))
+                    continue
+                email = utils.from_gmail_message(email_json, self._timezone)
+                emails.append(email)
 
         return emails
 
-    def batch_send_emails(self, email_data_list: List[Dict[str, Any]]) -> List[EmailMessage | Exception]:
+    def batch_send_emails(self, email_data_list: List[Dict[str, Any]]) -> List[dict | tuple]:
         """
         Sends multiple emails.
 
@@ -238,15 +252,41 @@ class GmailApiService:
             email_data_list: List of dictionaries containing email parameters
 
         Returns:
-            List of sent EmailMessage objects or Exception if send_email() fails
+            List of message_id and thread_id dictionaries of sent emails or a tuple of ("Error", [error_message])
         """
-
         sent_messages = []
-        for email_data in email_data_list:
-            try:
-                sent_messages.append(self.send_email(**email_data))
-            except Exception as e:
-                sent_messages.append(e)
+        for i in range(0, len(email_data_list), 10):
+            batch = self._service.new_batch_http_request()
+            for email_data in email_data_list[i: i + 10]:
+                raw_message = utils.create_message(
+                    to=email_data['to'],
+                    subject=email_data.get('subject'),
+                    body_text=email_data.get('body_text'),
+                    body_html=email_data.get('body_html'),
+                    cc=email_data.get('cc'),
+                    bcc=email_data.get('bcc'),
+                    attachment_paths=email_data.get('attachment_paths'),
+                    references=email_data.get('references'),
+                    reply_to_message_id=email_data.get('reply_to_message_id')
+                )
+
+                batch.add(
+                    self._service.users().messages().send(userId='me', body={'raw': raw_message, 'threadId': email_data.get('thread_id')})
+                    )
+            batch.execute()
+
+            for response in batch._responses.values():
+                email_json = json.loads(response[1].decode())
+                if "error" in email_json:
+                    sent_messages.append(("ERROR", email_json["error"]))
+                    continue
+
+                sent_messages.append(
+                    {
+                        "message_id": email_json['id'],
+                        "thread_id": email_json['threadId']
+                    }
+                )
 
         return sent_messages
 
@@ -702,7 +742,7 @@ class GmailApiService:
 
     def batch_get_threads(self, thread_ids: List[str]) -> List[EmailThread | Exception]:
         """
-        Retrieves multiple emails.
+        Retrieves multiple threads.
 
         Args:
             thread_ids: List of thread IDs to retrieve
@@ -712,13 +752,161 @@ class GmailApiService:
         """
 
         threads = []
-        for thread_id in thread_ids:
-            try:
-                threads.append(self.get_thread(thread_id))
-            except Exception as e:
-                threads.append(e)
+        for i in range(0, len(thread_ids), 10):
+            batch = self._service.new_batch_http_request()
+            for thread_id in thread_ids[i: i + 10]:
+                batch.add(self._service.users().threads().get(userId='me', id=thread_id, format='full'))
+            batch.execute()
+
+            for response in batch._responses.values():
+                thread_json = json.loads(response[1].decode())
+                if "error" in thread_json:
+                    threads.append(("ERROR", thread_json["error"]))
+                    continue
+                thread = utils.from_gmail_thread(thread_json, self._timezone)
+                threads.append(thread)
 
         return threads
+
+    def batch_delete_emails(
+            self,
+            emails: List[Union[EmailMessage, str]],
+            permanent: bool = False
+    ) -> List[bool | tuple]:
+        """
+        Deletes multiple emails (moves to trash or permanently deletes).
+
+        Args:
+            emails: List of EmailMessage objects or message IDs to delete.
+            permanent: If True, permanently deletes. If False, moves to trash.
+
+        Returns:
+            List of True for each success or ("ERROR", error_dict) for each failure.
+        """
+        results = []
+        message_ids = [e if isinstance(e, str) else e.message_id for e in emails]
+
+        for i in range(0, len(message_ids), 10):
+            batch = self._service.new_batch_http_request()
+            for message_id in message_ids[i: i + 10]:
+                if permanent:
+                    batch.add(self._service.users().messages().delete(userId='me', id=message_id))
+                else:
+                    batch.add(self._service.users().messages().trash(userId='me', id=message_id))
+            batch.execute()
+
+            for response in batch._responses.values():
+                body = response[1]
+                if not body:
+                    results.append(True)
+                    continue
+                response_json = json.loads(body.decode())
+                if "error" in response_json:
+                    results.append(("ERROR", response_json["error"]))
+                    continue
+                results.append(True)
+
+        return results
+
+    def batch_mark_as_read(self, emails: List[Union[EmailMessage, str]]) -> List[bool | tuple]:
+        """
+        Marks multiple emails as read.
+
+        Args:
+            emails: List of EmailMessage objects or message IDs.
+
+        Returns:
+            List of True for each success or ("ERROR", error_dict) for each failure.
+        """
+        results = []
+        message_ids = [e if isinstance(e, str) else e.message_id for e in emails]
+
+        for i in range(0, len(message_ids), 10):
+            batch = self._service.new_batch_http_request()
+            for message_id in message_ids[i: i + 10]:
+                batch.add(self._service.users().messages().modify(
+                    userId='me', id=message_id, body={'removeLabelIds': ['UNREAD']}
+                ))
+            batch.execute()
+
+            for response in batch._responses.values():
+                response_json = json.loads(response[1].decode())
+                if "error" in response_json:
+                    results.append(("ERROR", response_json["error"]))
+                    continue
+                results.append(True)
+
+        return results
+
+    def batch_mark_as_unread(self, emails: List[Union[EmailMessage, str]]) -> List[bool | tuple]:
+        """
+        Marks multiple emails as unread.
+
+        Args:
+            emails: List of EmailMessage objects or message IDs.
+
+        Returns:
+            List of True for each success or ("ERROR", error_dict) for each failure.
+        """
+        results = []
+        message_ids = [e if isinstance(e, str) else e.message_id for e in emails]
+
+        for i in range(0, len(message_ids), 10):
+            batch = self._service.new_batch_http_request()
+            for message_id in message_ids[i: i + 10]:
+                batch.add(self._service.users().messages().modify(
+                    userId='me', id=message_id, body={'addLabelIds': ['UNREAD']}
+                ))
+            batch.execute()
+
+            for response in batch._responses.values():
+                response_json = json.loads(response[1].decode())
+                if "error" in response_json:
+                    results.append(("ERROR", response_json["error"]))
+                    continue
+                results.append(True)
+
+        return results
+
+    def batch_delete_threads(
+            self,
+            threads: List[Union[EmailThread, str]],
+            permanent: bool = False
+    ) -> List[bool | tuple]:
+        """
+        Deletes multiple threads (moves to trash or permanently deletes).
+
+        Args:
+            threads: List of EmailThread objects or thread IDs to delete.
+            permanent: If True, permanently deletes. If False, moves to trash.
+
+        Returns:
+            List of True for each success or ("ERROR", error_dict) for each failure.
+        """
+        results = []
+        thread_ids = [t if isinstance(t, str) else t.thread_id for t in threads]
+
+        for i in range(0, len(thread_ids), 10):
+            batch = self._service.new_batch_http_request()
+            for thread_id in thread_ids[i: i + 10]:
+                if permanent:
+                    batch.add(self._service.users().threads().delete(userId='me', id=thread_id))
+                else:
+                    batch.add(self._service.users().threads().trash(userId='me', id=thread_id))
+            batch.execute()
+
+            for response in batch._responses.values():
+                body = response[1]
+                if not body:
+                    results.append(True)
+                    continue
+                response_json = json.loads(body.decode())
+                if "error" in response_json:
+                    results.append(("ERROR", response_json["error"]))
+                    continue
+                results.append(True)
+
+        return results
 
     def delete_thread(self, thread: Union[EmailThread, str], permanent: bool = False) -> bool:
         """

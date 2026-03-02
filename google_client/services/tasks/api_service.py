@@ -1,3 +1,4 @@
+import json
 from datetime import datetime, date, timedelta
 from typing import Optional, List, Any, Dict, Union
 
@@ -364,7 +365,20 @@ class TasksApiService:
             List of Task objects.
         """
 
-        tasks = [self.get_task(task_list_id, task_id) for task_id in task_ids]
+        tasks = []
+        for i in range(0, len(task_ids), 10):
+            batch = self._service.new_batch_http_request()
+            for task_id in task_ids[i: i + 10]:
+                batch.add(self._service.tasks().get(tasklist=task_list_id, task=task_id))
+            batch.execute()
+
+            for response in batch._responses.values():
+                task_json = json.loads(response[1].decode())
+                if "error" in task_json:
+                    tasks.append(("ERROR", task_json["error"]))
+                    continue
+                tasks.append(utils.from_google_task(task_json, task_list_id, self._timezone))
+
         return tasks
 
     def batch_create_tasks(
@@ -382,5 +396,136 @@ class TasksApiService:
             List of created Task objects.
         """
 
-        created_tasks = [self.create_task(task_list_id=task_list_id, **task_data) for task_data in tasks_data]
+        created_tasks = []
+        for i in range(0, len(tasks_data), 10):
+            batch = self._service.new_batch_http_request()
+            for task_data in tasks_data[i: i + 10]:
+                task_body = utils.create_task_body(
+                    title=task_data['title'],
+                    notes=task_data.get('notes'),
+                    due=task_data.get('due'),
+                    parent=task_data.get('parent'),
+                    position=task_data.get('position')
+                )
+                batch.add(self._service.tasks().insert(tasklist=task_list_id, body=task_body))
+            batch.execute()
+
+            for response in batch._responses.values():
+                task_json = json.loads(response[1].decode())
+                if "error" in task_json:
+                    created_tasks.append(("ERROR", task_json["error"]))
+                    continue
+                created_tasks.append(utils.from_google_task(task_json, task_list_id, self._timezone))
+
         return created_tasks
+
+    def batch_delete_tasks(
+            self,
+            tasks: List[Union[Task, str]],
+            task_list_id: str = DEFAULT_TASK_LIST_ID
+    ) -> List[bool | tuple]:
+        """
+        Deletes multiple tasks.
+
+        Args:
+            tasks: List of Task objects or task IDs to delete.
+            task_list_id: Task list identifier containing the tasks.
+
+        Returns:
+            List of True for each success or ("ERROR", error_dict) for each failure.
+        """
+        results = []
+        task_ids = [t if isinstance(t, str) else t.task_id for t in tasks]
+
+        for i in range(0, len(task_ids), 10):
+            batch = self._service.new_batch_http_request()
+            for task_id in task_ids[i: i + 10]:
+                batch.add(self._service.tasks().delete(tasklist=task_list_id, task=task_id))
+            batch.execute()
+
+            for response in batch._responses.values():
+                body = response[1]
+                if not body:
+                    results.append(True)
+                    continue
+                response_json = json.loads(body.decode())
+                if "error" in response_json:
+                    results.append(("ERROR", response_json["error"]))
+                    continue
+                results.append(True)
+
+        return results
+
+    def batch_mark_completed(
+            self,
+            tasks: List[Union[Task, str]],
+            task_list_id: str = DEFAULT_TASK_LIST_ID
+    ) -> List[Task | tuple]:
+        """
+        Marks multiple tasks as completed.
+
+        Args:
+            tasks: List of Task objects or task IDs.
+            task_list_id: Task list identifier containing the tasks.
+
+        Returns:
+            List of updated Task objects or ("ERROR", error_dict) for each failure.
+        """
+        completed_tasks = []
+        task_ids = [t if isinstance(t, str) else t.task_id for t in tasks]
+
+        for i in range(0, len(task_ids), 10):
+            batch = self._service.new_batch_http_request()
+            for task_id in task_ids[i: i + 10]:
+                batch.add(self._service.tasks().patch(
+                    tasklist=task_list_id,
+                    task=task_id,
+                    body={'status': TASK_STATUS_COMPLETED, 'completed': f"{date.today().isoformat()}T00:00:00.000Z"}
+                ))
+            batch.execute()
+
+            for response in batch._responses.values():
+                task_json = json.loads(response[1].decode())
+                if "error" in task_json:
+                    completed_tasks.append(("ERROR", task_json["error"]))
+                    continue
+                completed_tasks.append(utils.from_google_task(task_json, task_list_id, self._timezone))
+
+        return completed_tasks
+
+    def batch_mark_incomplete(
+            self,
+            tasks: List[Union[Task, str]],
+            task_list_id: str = DEFAULT_TASK_LIST_ID
+    ) -> List[Task | tuple]:
+        """
+        Marks multiple tasks as incomplete (needs action).
+
+        Args:
+            tasks: List of Task objects or task IDs.
+            task_list_id: Task list identifier containing the tasks.
+
+        Returns:
+            List of updated Task objects or ("ERROR", error_dict) for each failure.
+        """
+        incomplete_tasks = []
+        task_ids = [t if isinstance(t, str) else t.task_id for t in tasks]
+
+        for i in range(0, len(task_ids), 10):
+            batch = self._service.new_batch_http_request()
+            for task_id in task_ids[i: i + 10]:
+                batch.add(self._service.tasks().patch(
+                    tasklist=task_list_id,
+                    task=task_id,
+                    body={'status': TASK_STATUS_NEEDS_ACTION, 'completed': None}
+                ))
+            batch.execute()
+
+            for response in batch._responses.values():
+                task_json = json.loads(response[1].decode())
+                if "error" in task_json:
+                    incomplete_tasks.append(("ERROR", task_json["error"]))
+                    continue
+                incomplete_tasks.append(utils.from_google_task(task_json, task_list_id, self._timezone))
+
+        return incomplete_tasks

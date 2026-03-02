@@ -1,5 +1,6 @@
 import asyncio
 import base64
+import json
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Optional, List, Dict, Any, Union, Literal
@@ -167,22 +168,71 @@ class AsyncGmailApiService:
         return await self.get_email(result['message']['id'])
 
     async def batch_get_emails(self, message_ids: List[str]) -> List["EmailMessage"]:
-        tasks = []
-        for message_id in message_ids:
-            task = asyncio.create_task(self.get_email(message_id))
-            tasks.append(task)
+        emails = []
+        loop = asyncio.get_event_loop()
 
-        emails = await asyncio.gather(*tasks, return_exceptions=True)
+        for i in range(0, len(message_ids), 10):
+            chunk = message_ids[i: i + 10]
+
+            service = self._service()
+            batch = service.new_batch_http_request()
+            for message_id in chunk:
+                batch.add(service.users().messages().get(userId='me', id=message_id, format='full'))
+
+            await loop.run_in_executor(self._executor, batch.execute)
+
+            for response in batch._responses.values():
+                email_json = json.loads(response[1].decode())
+                if "error" in email_json:
+                    emails.append(("ERROR", email_json["error"]))
+                    continue
+                email = utils.from_gmail_message(email_json, self._timezone)
+                emails.append(email)
+
         return emails
 
-    async def batch_send_emails(self, email_data_list: List[Dict[str, Any]]) -> List["EmailMessage"]:
-        tasks = []
-        for email_data in email_data_list:
-            task = asyncio.create_task(self.send_email(**email_data))
-            tasks.append(task)
+    async def batch_send_emails(self, email_data_list: List[Dict[str, Any]]) -> List[dict | tuple]:
+        sent_messages = []
+        loop = asyncio.get_event_loop()
 
-        emails = await asyncio.gather(*tasks, return_exceptions=True)
-        return emails
+        for i in range(0, len(email_data_list), 10):
+            chunk = email_data_list[i: i + 10]
+
+            service = self._service()
+            batch = service.new_batch_http_request()
+            for email_data in chunk:
+                raw_message = utils.create_message(
+                    to=email_data['to'],
+                    subject=email_data.get('subject'),
+                    body_text=email_data.get('body_text'),
+                    body_html=email_data.get('body_html'),
+                    cc=email_data.get('cc'),
+                    bcc=email_data.get('bcc'),
+                    attachment_paths=email_data.get('attachment_paths'),
+                    references=email_data.get('references'),
+                    reply_to_message_id=email_data.get('reply_to_message_id')
+                )
+                batch.add(
+                    service.users().messages().send(
+                        userId='me', body={'raw': raw_message, 'threadId': email_data.get('thread_id')}
+                    )
+                )
+
+            await loop.run_in_executor(self._executor, batch.execute)
+
+            for response in batch._responses.values():
+                email_json = json.loads(response[1].decode())
+                if "error" in email_json:
+                    sent_messages.append(("ERROR", email_json["error"]))
+                    continue
+                sent_messages.append(
+                    {
+                        "message_id": email_json['id'],
+                        "thread_id": email_json['threadId']
+                    }
+                )
+
+        return sent_messages
 
     async def reply(
             self,
@@ -552,14 +602,143 @@ class AsyncGmailApiService:
         )
         return utils.from_gmail_thread(thread, self._timezone)
 
-    async def batch_get_thread(self, thread_ids: List[str]) -> List[EmailThread]:
-        tasks = []
-        for thread_id in thread_ids:
-            task = asyncio.create_task(self.get_thread(thread_id))
-            tasks.append(task)
+    async def batch_get_threads(self, thread_ids: List[str]) -> List[EmailThread]:
+        threads = []
+        loop = asyncio.get_event_loop()
 
-        threads = await asyncio.gather(*tasks, return_exceptions=True)
+        for i in range(0, len(thread_ids), 10):
+            chunk = thread_ids[i: i + 10]
+
+            service = self._service()
+            batch = service.new_batch_http_request()
+            for thread_id in chunk:
+                batch.add(service.users().threads().get(userId='me', id=thread_id, format='full'))
+
+            await loop.run_in_executor(self._executor, batch.execute)
+
+            for response in batch._responses.values():
+                thread_json = json.loads(response[1].decode())
+                if "error" in thread_json:
+                    threads.append(("ERROR", thread_json["error"]))
+                    continue
+                thread = utils.from_gmail_thread(thread_json, self._timezone)
+                threads.append(thread)
+
         return threads
+
+    async def batch_delete_emails(
+            self,
+            emails: List[Union[EmailMessage, str]],
+            permanent: bool = False
+    ) -> List[bool | tuple]:
+        results = []
+        loop = asyncio.get_event_loop()
+        message_ids = [e if isinstance(e, str) else e.message_id for e in emails]
+
+        for i in range(0, len(message_ids), 10):
+            chunk = message_ids[i: i + 10]
+            service = self._service()
+            batch = service.new_batch_http_request()
+            for message_id in chunk:
+                if permanent:
+                    batch.add(service.users().messages().delete(userId='me', id=message_id))
+                else:
+                    batch.add(service.users().messages().trash(userId='me', id=message_id))
+            await loop.run_in_executor(self._executor, batch.execute)
+
+            for response in batch._responses.values():
+                body = response[1]
+                if not body:
+                    results.append(True)
+                    continue
+                response_json = json.loads(body.decode())
+                if "error" in response_json:
+                    results.append(("ERROR", response_json["error"]))
+                    continue
+                results.append(True)
+
+        return results
+
+    async def batch_mark_as_read(self, emails: List[Union[EmailMessage, str]]) -> List[bool | tuple]:
+        results = []
+        loop = asyncio.get_event_loop()
+        message_ids = [e if isinstance(e, str) else e.message_id for e in emails]
+
+        for i in range(0, len(message_ids), 10):
+            chunk = message_ids[i: i + 10]
+            service = self._service()
+            batch = service.new_batch_http_request()
+            for message_id in chunk:
+                batch.add(service.users().messages().modify(
+                    userId='me', id=message_id, body={'removeLabelIds': ['UNREAD']}
+                ))
+            await loop.run_in_executor(self._executor, batch.execute)
+
+            for response in batch._responses.values():
+                response_json = json.loads(response[1].decode())
+                if "error" in response_json:
+                    results.append(("ERROR", response_json["error"]))
+                    continue
+                results.append(True)
+
+        return results
+
+    async def batch_mark_as_unread(self, emails: List[Union[EmailMessage, str]]) -> List[bool | tuple]:
+        results = []
+        loop = asyncio.get_event_loop()
+        message_ids = [e if isinstance(e, str) else e.message_id for e in emails]
+
+        for i in range(0, len(message_ids), 10):
+            chunk = message_ids[i: i + 10]
+            service = self._service()
+            batch = service.new_batch_http_request()
+            for message_id in chunk:
+                batch.add(service.users().messages().modify(
+                    userId='me', id=message_id, body={'addLabelIds': ['UNREAD']}
+                ))
+            await loop.run_in_executor(self._executor, batch.execute)
+
+            for response in batch._responses.values():
+                response_json = json.loads(response[1].decode())
+                if "error" in response_json:
+                    results.append(("ERROR", response_json["error"]))
+                    continue
+                results.append(True)
+
+        return results
+
+    async def batch_delete_threads(
+            self,
+            threads: List[Union[EmailThread, str]],
+            permanent: bool = False
+    ) -> List[bool | tuple]:
+        results = []
+        loop = asyncio.get_event_loop()
+        thread_ids = [t if isinstance(t, str) else t.thread_id for t in threads]
+
+        for i in range(0, len(thread_ids), 10):
+            chunk = thread_ids[i: i + 10]
+            service = self._service()
+            batch = service.new_batch_http_request()
+            for thread_id in chunk:
+                if permanent:
+                    batch.add(service.users().threads().delete(userId='me', id=thread_id))
+                else:
+                    batch.add(service.users().threads().trash(userId='me', id=thread_id))
+            await loop.run_in_executor(self._executor, batch.execute)
+
+            for response in batch._responses.values():
+                body = response[1]
+                if not body:
+                    results.append(True)
+                    continue
+                response_json = json.loads(body.decode())
+                if "error" in response_json:
+                    results.append(("ERROR", response_json["error"]))
+                    continue
+                results.append(True)
+
+        return results
 
     async def delete_thread(self, thread: Union[EmailThread, str], permanent: bool = False) -> bool:
         try:

@@ -1,4 +1,5 @@
 import asyncio
+import json
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta
@@ -335,25 +336,101 @@ class AsyncCalendarApiService:
             event_ids: List[str],
             calendar_id: str = DEFAULT_CALENDAR_ID
     ) -> List[CalendarEvent]:
-        tasks = []
-        for event_id in event_ids:
-            task = asyncio.create_task(self.get_event(event_id, calendar_id))
-            tasks.append(task)
+        calendar_events = []
+        loop = asyncio.get_event_loop()
 
-        results = await asyncio.gather(*tasks, return_exceptions=True)
-        return results
+        for i in range(0, len(event_ids), 10):
+            chunk = event_ids[i: i + 10]
+            service = self._service()
+            batch = service.new_batch_http_request()
+            for event_id in chunk:
+                batch.add(service.events().get(calendarId=calendar_id, eventId=event_id))
+            await loop.run_in_executor(self._executor, batch.execute)
+
+            for response in batch._responses.values():
+                event_json = json.loads(response[1].decode())
+                if "error" in event_json:
+                    calendar_events.append(("ERROR", event_json["error"]))
+                    continue
+                calendar_events.append(utils.from_google_event(event_json, calendar_id, self._timezone))
+
+        return calendar_events
 
     async def batch_create_events(
             self,
             events_data: List[Dict[str, Any]],
             calendar_id: str = DEFAULT_CALENDAR_ID
     ) -> List[CalendarEvent]:
-        tasks = []
-        for event_data in events_data:
-            task = asyncio.create_task(self.create_event(calendar_id=calendar_id, **event_data))
-            tasks.append(task)
+        created_events = []
+        loop = asyncio.get_event_loop()
 
-        results = await asyncio.gather(*tasks, return_exceptions=True)
+        for i in range(0, len(events_data), 10):
+            chunk = events_data[i: i + 10]
+            service = self._service()
+            batch = service.new_batch_http_request()
+            for event_data in chunk:
+                event_body = {
+                    'summary': event_data.get('summary') or "New Event",
+                    'start': {'dateTime': datetime_to_iso(event_data['start'], self._timezone), 'timeZone': self._timezone},
+                    'end': {'dateTime': datetime_to_iso(event_data['end'], self._timezone), 'timeZone': self._timezone},
+                }
+                if event_data.get('description'):
+                    event_body['description'] = event_data['description']
+                if event_data.get('location'):
+                    event_body['location'] = event_data['location']
+                if event_data.get('attendees'):
+                    event_body['attendees'] = [a.to_dict() for a in event_data['attendees']]
+                if event_data.get('recurrence'):
+                    event_body['recurrence'] = event_data['recurrence']
+                if event_data.get('create_google_meet'):
+                    event_body['conferenceData'] = {
+                        "createRequest": {
+                            "requestId": uuid.uuid4().hex,
+                            "conferenceSolutionKey": {"type": "hangoutsMeet"}
+                        }
+                    }
+                batch.add(service.events().insert(
+                    calendarId=calendar_id, body=event_body, conferenceDataVersion=1
+                ))
+            await loop.run_in_executor(self._executor, batch.execute)
+
+            for response in batch._responses.values():
+                event_json = json.loads(response[1].decode())
+                if "error" in event_json:
+                    created_events.append(("ERROR", event_json["error"]))
+                    continue
+                created_events.append(utils.from_google_event(event_json, calendar_id, self._timezone))
+
+        return created_events
+
+    async def batch_delete_events(
+            self,
+            events: List[Union[CalendarEvent, str]],
+            calendar_id: str = DEFAULT_CALENDAR_ID
+    ) -> List[bool | tuple]:
+        results = []
+        loop = asyncio.get_event_loop()
+        event_ids = [e if isinstance(e, str) else e.event_id for e in events]
+
+        for i in range(0, len(event_ids), 10):
+            chunk = event_ids[i: i + 10]
+            service = self._service()
+            batch = service.new_batch_http_request()
+            for event_id in chunk:
+                batch.add(service.events().delete(calendarId=calendar_id, eventId=event_id))
+            await loop.run_in_executor(self._executor, batch.execute)
+
+            for response in batch._responses.values():
+                body = response[1]
+                if not body:
+                    results.append(True)
+                    continue
+                response_json = json.loads(body.decode())
+                if "error" in response_json:
+                    results.append(("ERROR", response_json["error"]))
+                    continue
+                results.append(True)
+
         return results
 
     async def get_freebusy(
