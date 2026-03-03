@@ -1,4 +1,5 @@
 import io
+import json
 from pathlib import Path
 from typing import Optional, List, Dict, Any, Union, BinaryIO
 
@@ -839,3 +840,235 @@ class DriveApiService:
 
                 display_name = " ".join(display_parts)
                 print(current_prefix + display_name)
+
+    def batch_get(self, item_ids: List[str]) -> List[DriveItem | tuple]:
+        """
+        Retrieves multiple Drive items by their IDs.
+
+        Args:
+            item_ids: List of file/folder IDs to retrieve.
+
+        Returns:
+            List of DriveItem objects or ("ERROR", error_dict) for each failure.
+        """
+        results = []
+        for i in range(0, len(item_ids), 10):
+            batch = self._service.new_batch_http_request()
+            for item_id in item_ids[i: i + 10]:
+                batch.add(self._service.files().get(fileId=item_id, fields=DEFAULT_FILE_FIELDS))
+            batch.execute()
+
+            for response in batch._responses.values():
+                item_json = json.loads(response[1].decode())
+                if "error" in item_json:
+                    results.append(("ERROR", item_json["error"]))
+                    continue
+                results.append(utils.convert_api_file_to_correct_type(item_json))
+
+        return results
+
+    def batch_delete(self, items: List[DriveItem | str]) -> List[bool | tuple]:
+        """
+        Permanently deletes multiple Drive items.
+
+        Args:
+            items: List of DriveItem objects or item IDs to delete.
+
+        Returns:
+            List of True for each success or ("ERROR", error_dict) for each failure.
+        """
+        results = []
+        item_ids = [i if isinstance(i, str) else i.item_id for i in items]
+
+        for i in range(0, len(item_ids), 10):
+            batch = self._service.new_batch_http_request()
+            for item_id in item_ids[i: i + 10]:
+                batch.add(self._service.files().delete(fileId=item_id))
+            batch.execute()
+
+            for response in batch._responses.values():
+                body = response[1]
+                if not body:
+                    results.append(True)
+                    continue
+                response_json = json.loads(body.decode())
+                if "error" in response_json:
+                    results.append(("ERROR", response_json["error"]))
+                    continue
+                results.append(True)
+
+        return results
+
+    def batch_move_to_trash(self, items: List[DriveItem | str]) -> List[DriveItem | tuple]:
+        """
+        Moves multiple Drive items to trash.
+
+        Args:
+            items: List of DriveItem objects or item IDs to trash.
+
+        Returns:
+            List of updated DriveItem objects or ("ERROR", error_dict) for each failure.
+        """
+        results = []
+        item_ids = [i if isinstance(i, str) else i.item_id for i in items]
+
+        for i in range(0, len(item_ids), 10):
+            batch = self._service.new_batch_http_request()
+            for item_id in item_ids[i: i + 10]:
+                batch.add(self._service.files().update(
+                    fileId=item_id, body={'trashed': True}, fields=DEFAULT_FILE_FIELDS
+                ))
+            batch.execute()
+
+            for response in batch._responses.values():
+                item_json = json.loads(response[1].decode())
+                if "error" in item_json:
+                    results.append(("ERROR", item_json["error"]))
+                    continue
+                results.append(utils.convert_api_file_to_correct_type(item_json))
+
+        return results
+
+    def batch_move(
+            self,
+            items: List[DriveItem | str],
+            target_folder: DriveFolder | str,
+            remove_from_current_parents: bool = True
+    ) -> List[DriveItem | tuple]:
+        """
+        Moves multiple Drive items to the same target folder.
+
+        Args:
+            items: List of DriveItem objects or item IDs to move.
+            target_folder: Destination DriveFolder or folder ID.
+            remove_from_current_parents: Whether to remove items from their current parents.
+
+        Returns:
+            List of updated DriveItem objects or ("ERROR", error_dict) for each failure.
+        """
+        if isinstance(target_folder, DriveFolder):
+            target_folder = target_folder.folder_id
+
+        if items and not (
+            all(isinstance(i, str) for i in items) or
+            all(isinstance(i, DriveItem) for i in items)
+        ):
+            raise TypeError("All items must be the same type: either all strings or all DriveItems")
+
+        if remove_from_current_parents:
+            if isinstance(items[0], str):
+                items = self.batch_get(items)
+
+        results = []
+        for i in range(0, len(items), 10):
+            batch = self._service.new_batch_http_request()
+            for item in items[i: i + 10]:
+                item_id = item if isinstance(item, str) else item.item_id
+                params = {
+                    'fileId': item_id,
+                    'addParents': target_folder,
+                    'fields': DEFAULT_FILE_FIELDS
+                }
+                if remove_from_current_parents and isinstance(item, DriveItem) and item.parent_ids:
+                    params['removeParents'] = ','.join(item.parent_ids)
+                batch.add(self._service.files().update(**params))
+            batch.execute()
+
+            for response in batch._responses.values():
+                item_json = json.loads(response[1].decode())
+                if "error" in item_json:
+                    results.append(("ERROR", item_json["error"]))
+                    continue
+                results.append(utils.convert_api_file_to_correct_type(item_json))
+
+        return results
+
+    def batch_copy(
+            self,
+            items: List[DriveItem | str],
+            destination_folder: DriveFolder | str,
+            new_name: Optional[str] = None
+    ) -> List[DriveItem | tuple]:
+        """
+        Copies multiple Drive items to the same destination folder.
+
+        Args:
+            items: List of DriveItem objects or item IDs to copy.
+            destination_folder: Destination DriveFolder or folder ID.
+            new_name: Optional name applied to every copy.
+
+        Returns:
+            List of copied DriveItem objects or ("ERROR", error_dict) for each failure.
+        """
+        if isinstance(destination_folder, DriveFolder):
+            destination_folder = destination_folder.folder_id
+
+        item_ids = [i if isinstance(i, str) else i.item_id for i in items]
+
+        metadata = {'parents': [destination_folder]}
+        if new_name:
+            metadata['name'] = utils.sanitize_filename(new_name)
+
+        results = []
+        for i in range(0, len(item_ids), 10):
+            batch = self._service.new_batch_http_request()
+            for item_id in item_ids[i: i + 10]:
+                batch.add(self._service.files().copy(
+                    fileId=item_id, body=metadata, fields=DEFAULT_FILE_FIELDS
+                ))
+            batch.execute()
+
+            for response in batch._responses.values():
+                item_json = json.loads(response[1].decode())
+                if "error" in item_json:
+                    results.append(("ERROR", item_json["error"]))
+                    continue
+                results.append(utils.convert_api_file_to_correct_type(item_json))
+
+        return results
+
+    def batch_share(
+            self,
+            items: List[DriveItem | str],
+            email: str,
+            role: str = "reader",
+            notify: bool = True,
+            message: Optional[str] = None
+    ) -> List[Permission | tuple]:
+        """
+        Shares multiple Drive items with the same user.
+
+        Args:
+            items: List of DriveItem objects or item IDs to share.
+            email: Email address of the user to share with.
+            role: Permission role ('reader', 'writer', 'commenter', 'owner').
+            notify: Whether to send a notification email.
+            message: Optional message to include in the notification email.
+
+        Returns:
+            List of Permission objects or ("ERROR", error_dict) for each failure.
+        """
+        item_ids = [i if isinstance(i, str) else i.item_id for i in items]
+        perm_body = {'type': 'user', 'role': role, 'emailAddress': email}
+
+        results = []
+        for i in range(0, len(item_ids), 10):
+            batch = self._service.new_batch_http_request()
+            for item_id in item_ids[i: i + 10]:
+                batch.add(self._service.permissions().create(
+                    fileId=item_id,
+                    body=perm_body,
+                    sendNotificationEmail=notify,
+                    emailMessage=message,
+                    fields='*'
+                ))
+            batch.execute()
+
+            for response in batch._responses.values():
+                perm_json = json.loads(response[1].decode())
+                if "error" in perm_json:
+                    results.append(("ERROR", perm_json["error"]))
+                    continue
+                results.append(utils.convert_api_permission_to_permission(perm_json))
+
+        return results

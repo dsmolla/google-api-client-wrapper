@@ -12,4 +12,4 @@ MICROSOFT_EXCEL_MIME_TYPE = "application/vnd.openxmlformats-officedocument.sprea
 MICROSOFT_POWERPOINT_MIME_TYPE = "application/vnd.openxmlformats-officedocument.presentationml.presentation"
 
 # File field selections for API calls
-DEFAULT_FILE_FIELDS = "id,name,size,mimeType,createdTime,modifiedTime,parents,webViewLink,webContentLink,owners,permissions"
+DEFAULT_FILE_FIELDS = "*"
