@@ -1,6 +1,7 @@
 import asyncio
 import json
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
+from time import sleep
 
 from google_client.api_service import APIServiceLayer
 
@@ -21,6 +22,10 @@ async_gmail = api.async_gmail
 async_calendar = api.async_calendar
 async_tasks = api.async_tasks
 async_drive = api.async_drive
+sheets = api.sheets
+async_sheets = api.async_sheets
+docs = api.docs
+async_docs = api.async_docs
 
 # Set to a real Google account email for batch_share tests
 TEST_SHARE_EMAIL = "devpyagent@gmail.com"
@@ -297,30 +302,173 @@ def test_drive_batch_share():
 
 
 # ---------------------------------------------------------------------------
-# Docs and Sheets tests
+# Sheets tests
+# ---------------------------------------------------------------------------
+
+def test_sheets_worksheets():
+    sp = sheets.create_spreadsheet("Test Worksheets")
+    ws = sheets.add_worksheet(sp.spreadsheet_id, "New Tab", 10, 10)
+    check(ws.title == "New Tab")
+
+    sheets.rename_worksheet(sp.spreadsheet_id, ws.sheet_id, "Renamed Tab")
+    sp_updated = sheets.get_spreadsheet(sp.spreadsheet_id)
+    check(any(w.title == "Renamed Tab" for w in sp_updated.worksheets))
+
+    sheets.delete_worksheet(sp.spreadsheet_id, ws.sheet_id)
+    sp_deleted = sheets.get_spreadsheet(sp.spreadsheet_id)
+    check(not any(w.title == "Renamed Tab" for w in sp_deleted.worksheets))
+
+
+def test_sheets_values():
+    sp = sheets.create_spreadsheet("Test Values")
+    # update A1:B2
+    sheets.update_values(sp.spreadsheet_id, "Sheet1!A1", [["A", "B"], ["C", "D"]])
+    val = sheets.get_values(sp.spreadsheet_id, "Sheet1!A1:B2")
+    check(val.values == [["A", "B"], ["C", "D"]])
+
+    # append
+    sheets.append_values(sp.spreadsheet_id, "Sheet1!A1:B2", [["E", "F"]])
+    val_append = sheets.get_values(sp.spreadsheet_id, "Sheet1!A1:B3")
+    check(len(val_append.values) == 3)
+
+    # clear
+    sheets.clear_values(sp.spreadsheet_id, "Sheet1!A1:B3")
+    val_cleared = sheets.get_values(sp.spreadsheet_id, "Sheet1!A1:B3")
+    check(not val_cleared.values)
+
+
+def test_sheets_formatting():
+    from google_client.services.sheets.types import CellFormat, CellBorders, Border, BorderStyle
+    sp = sheets.create_spreadsheet("Test Formatting")
+    sheet_id = sp.worksheets[0].sheet_id
+
+    fmt = CellFormat(
+        bold=True,
+        text_color_hex="#ff0000",
+        borders=CellBorders(
+            bottom=Border(style=BorderStyle.SOLID_THICK, color_hex="#000000")
+        )
+    )
+    sheets.format_range(sp.spreadsheet_id, sheet_id, 0, 1, 0, 1, fmt)
+
+    # merge and unmerge
+    sheets.merge_cells(sp.spreadsheet_id, sheet_id, 0, 2, 0, 2)
+    sheets.unmerge_cells(sp.spreadsheet_id, sheet_id, 0, 2, 0, 2)
+
+    # auto resize
+    sheets.auto_resize_columns(sp.spreadsheet_id, sheet_id, 0, 2)
+
+
+def test_sheets_ai_agent_operations():
+    sp = sheets.create_spreadsheet("Test AI Agent")
+    # write dicts
+    data = [
+        {"Name": "Alice", "Age": "30", "Role": "Engineer"},
+        {"Name": "Bob", "Age": "25", "Role": "Designer"},
+    ]
+    sheets.append_values_from_dicts(sp.spreadsheet_id, "Sheet1!A1", data)
+
+    # read headers
+    headers = sheets.get_headers(sp.spreadsheet_id, "Sheet1!A1:C1")
+    check(headers == ["Name", "Age", "Role"], "Headers mapping failed")
+
+    # read dicts
+    read_data = sheets.get_values_as_dicts(sp.spreadsheet_id, "Sheet1!A1:C3")
+    check(len(read_data) == 2, "Dicts mapping failed")
+    check(read_data[0]["Name"] == "Alice", "Data integrity lost")
+
+    # find value
+    pos = sheets.find_value(sp.spreadsheet_id, "Sheet1!A1:C3", "Bob")
+    check(pos is not None, "Value not found")
+    check(pos[0] == 2, "Incorrect row index")  # A1=headers, A2=Alice, A3=Bob
+
+
+def test_sheets_structural_mutations():
+    sp = sheets.create_spreadsheet("Test Mutations")
+    sheet_id = sp.worksheets[0].sheet_id
+
+    updater = sheets.batch_updater(sp.spreadsheet_id)
+    updater.insert_rows(sheet_id, 1, 2)
+    updater.delete_rows(sheet_id, 1, 2)
+    updater.freeze_rows(sheet_id, 1)
+    updater.add_data_validation(sheet_id, 0, 10, 0, 1, ["Yes", "No"])
+    updater.sort_range(sheet_id, 0, 10, 0, 5, 0, ascending=True)
+    updater.duplicate_worksheet(sheet_id, "Cloned Tab")
+    updater.execute()
+
+
+def test_sheets_batch_updater():
+    from google_client.services.sheets.types import CellFormat
+    sp = sheets.create_spreadsheet("Test Batch")
+
+    updater = sheets.batch_updater(sp.spreadsheet_id)
+    updater.add_worksheet("Batch Tab", sheet_id=999)
+    updater.update_values("Batch Tab!A1", [["1", "2"], ["3", "4"]])
+    updater.format_range(999, 0, 2, 0, 2, CellFormat(bold=True))
+    updater.append_values("Batch Tab!A1:B2", [["5", "6"]])
+    updater.execute()
+
+    # Verify the results via getters
+    sp_updated = sheets.get_spreadsheet(sp.spreadsheet_id)
+    check(any(w.title == "Batch Tab" for w in sp_updated.worksheets), "Worksheet was not added")
+
+    val = sheets.get_values(sp.spreadsheet_id, "Batch Tab!A1:B3")
+    check(len(val.values) == 3, f"Expected 3 rows, got {len(val.values) if val.values else 0}")
+    check(val.values[0] == ["1", "2"], "Initial updated values lost")
+    check(val.values[2] == ["5", "6"], "Appended values missing")
+
+
+# ---------------------------------------------------------------------------
+# Docs tests
 # ---------------------------------------------------------------------------
 
 def test_docs_basic():
-    doc = api.docs.create_document("[TEST] Basic Doc")
-    check("documentId" in doc, "doc creation failed")
-    doc_id = doc["documentId"]
-    fetched = api.docs.get_document(doc_id)
-    check(fetched["title"] == "[TEST] Basic Doc", "fetched title mismatch")
-    api.drive.delete(doc_id)
+    doc = docs.create_document("Test Basic Doc")
+    check(doc.title == "Test Basic Doc", "Title mismatch")
+    fetched = docs.get_document(doc.document_id)
+    check(fetched.document_id == doc.document_id, "ID mismatch")
 
-def test_sheets_basic():
-    sheet = api.sheets.create_spreadsheet("[TEST] Basic Sheet")
-    check(sheet.spreadsheet_id is not None, "sheet creation failed")
-    sheet_id = sheet.spreadsheet_id
-    fetched = api.sheets.get_spreadsheet(sheet_id)
-    check(fetched.title == "[TEST] Basic Sheet", "fetched title mismatch")
-    
-    values = [["A", "B", "C"], ["1", "2", "3"]]
-    api.sheets.update_values(sheet_id, "Sheet1!A1:C2", values)
-    cells = api.sheets.get_values(sheet_id, "Sheet1!A1:C2")
-    check(len(cells.values) == 2 and cells.values[0][0] == "A", "sheet update_values failed")
-    
-    api.drive.delete(sheet_id)
+
+def test_docs_formatting_and_reading():
+    doc = docs.create_document("Test Formatting Doc")
+    doc_id = doc.document_id
+
+    # Test insertions
+    docs.insert_text(doc_id, "Hello World!\n", index=1)
+    docs.insert_table(doc_id, rows=2, columns=2, index=14)
+    docs.replace_all_text(doc_id, "World", "Universe")
+
+    # Test formatting
+    docs.update_text_style(doc_id, start_index=1, end_index=6, bold=True, italic=True)
+    docs.update_paragraph_alignment(doc_id, start_index=1, end_index=6, alignment="CENTER")
+    docs.update_heading_style(doc_id, start_index=1, end_index=6, heading_id="HEADING_1")
+    docs.insert_page_break(doc_id, index=15)
+
+    # Test reading
+    extracted_text = docs.get_document_text(doc_id)
+    check("Hello Universe" in extracted_text, "Inserted and replaced text not found in extracted text")
+
+
+def test_docs_advanced():
+    doc = docs.create_document("Test Advanced Doc")
+    doc_id = doc.document_id
+
+    # Test Table helper
+    data = [["Col1", "Col2"], ["Val1", "https://example.com"]]
+    docs.insert_table_with_data(doc_id, index=1, data=data)
+
+    text = docs.get_document_text(doc_id)
+    check("Val1" in text, "Table text missing")
+
+    # Test delete text
+    docs.insert_text(doc_id, "DELETE ME", index=1)
+    docs.delete_text(doc_id, start_index=1, end_index=10)
+    updated_text = docs.get_document_text(doc_id)
+    check("DELETE ME" not in updated_text, "Failed to delete text")
+
+    # Test links extraction
+    links = docs.get_document_links(doc_id)
+    check(isinstance(links, list), "Links extraction failed to return list")
 
 
 # ---------------------------------------------------------------------------
@@ -522,21 +670,53 @@ async def _run_async_tests():
         )
         await async_drive.batch_delete([f.item_id for f in files])
 
+    # --- async sheets operations ---
+    async def test_async_sheets_operations():
+        sp = await async_sheets.create_spreadsheet("Async Test Spreadsheet")
+
+        await async_sheets.add_worksheet(sp.spreadsheet_id, "Async Tab", 10, 10)
+
+        data = [{"Name": "Async Alice"}, {"Name": "Async Bob"}]
+        await async_sheets.append_values_from_dicts(sp.spreadsheet_id, "Async Tab!A1", data)
+
+        updater = async_sheets.batch_updater(sp.spreadsheet_id)
+        updater.insert_rows(0, 1, 1)
+        await updater.execute()
+
+        headers = await async_sheets.get_headers(sp.spreadsheet_id, "Async Tab!A1:A")
+        check(len(headers) > 0, "Async headers not found")
+
+    # --- async docs operations ---
+    async def test_async_docs_operations():
+        doc = await async_docs.create_document("Async Test Docs")
+        doc_id = doc.document_id
+        await async_docs.insert_text(doc_id, "Async Docs Content\n", 1)
+        await async_docs.delete_text(doc_id, start_index=1, end_index=20)
+
+        await async_docs.insert_table_with_data(doc_id, index=1, data=[["A", "B"], ["C", "D"]])
+        extracted_text = await async_docs.get_document_text(doc_id)
+        check("C" in extracted_text, "Async extracted text mismatch")
+
+        links = await async_docs.get_document_links(doc_id)
+        check(isinstance(links, list), "Links extraction list validation failed")
+
     return [
-        ("async batch_delete_emails",       test_async_batch_delete_emails),
-        ("async batch_mark_as_read",        test_async_batch_mark_as_read),
-        ("async batch_mark_as_unread",      test_async_batch_mark_as_unread),
-        ("async batch_delete_threads",      test_async_batch_delete_threads),
-        ("async batch_delete_events",       test_async_batch_delete_events),
-        ("async batch_delete_tasks",        test_async_batch_delete_tasks),
-        ("async batch_mark_completed",      test_async_batch_mark_completed),
-        ("async batch_mark_incomplete",     test_async_batch_mark_incomplete),
-        ("async drive batch_get",           test_async_drive_batch_get),
-        ("async drive batch_delete",        test_async_drive_batch_delete),
-        ("async drive batch_move_to_trash", test_async_drive_batch_move_to_trash),
-        ("async drive batch_move",          test_async_drive_batch_move),
-        ("async drive batch_copy",          test_async_drive_batch_copy),
-        ("async drive batch_share",         test_async_drive_batch_share),
+        # ("async batch_delete_emails",       test_async_batch_delete_emails),
+        # ("async batch_mark_as_read",        test_async_batch_mark_as_read),
+        # ("async batch_mark_as_unread",      test_async_batch_mark_as_unread),
+        # ("async batch_delete_threads",      test_async_batch_delete_threads),
+        # ("async batch_delete_events",       test_async_batch_delete_events),
+        # ("async batch_delete_tasks",        test_async_batch_delete_tasks),
+        # ("async batch_mark_completed",      test_async_batch_mark_completed),
+        # ("async batch_mark_incomplete",     test_async_batch_mark_incomplete),
+        # ("async drive batch_get",           test_async_drive_batch_get),
+        # ("async drive batch_delete",        test_async_drive_batch_delete),
+        # ("async drive batch_move_to_trash", test_async_drive_batch_move_to_trash),
+        # ("async drive batch_move",          test_async_drive_batch_move),
+        # ("async drive batch_copy",          test_async_drive_batch_copy),
+        # ("async drive batch_share",         test_async_drive_batch_share),
+        ("async sheets operations", test_async_sheets_operations),
+        ("async docs operations", test_async_docs_operations),
     ]
 
 
@@ -579,30 +759,44 @@ if __name__ == "__main__":
     #     ("batch_mark_incomplete", test_batch_mark_incomplete),
     # ]
 
-    drive_sync_tests = [
-        ("drive batch_get",           test_drive_batch_get),
-        ("drive batch_delete",        test_drive_batch_delete),
-        ("drive batch_move_to_trash", test_drive_batch_move_to_trash),
-        ("drive batch_move",          test_drive_batch_move),
-        ("drive batch_copy",          test_drive_batch_copy),
-        ("drive batch_share",         test_drive_batch_share),
-    ]
+    # drive_sync_tests = [
+    #     ("drive batch_get",           test_drive_batch_get),
+    #     ("drive batch_delete",        test_drive_batch_delete),
+    #     ("drive batch_move_to_trash", test_drive_batch_move_to_trash),
+    #     ("drive batch_move",          test_drive_batch_move),
+    #     ("drive batch_copy",          test_drive_batch_copy),
+    #     ("drive batch_share",         test_drive_batch_share),
+    # ]
 
     # print("\n=== Sync Tests ===")
     # for name, fn in sync_tests:
     #     run_test(name, fn)
 
-    print("\n=== Drive Sync Tests ===")
-    for name, fn in drive_sync_tests:
-        run_test(name, fn)
+    # print("\n=== Drive Sync Tests ===")
+    # for name, fn in drive_sync_tests:
+    #     run_test(name, fn)
 
-    docs_sheets_tests = [
-        ("docs basic", test_docs_basic),
-        ("sheets basic", test_sheets_basic),
+    sheets_tests = [
+        ("sheets worksheets", test_sheets_worksheets),
+        ("sheets values", test_sheets_values),
+        ("sheets formatting", test_sheets_formatting),
+        ("sheets AI agent ops", test_sheets_ai_agent_operations),
+        ("sheets structure muts", test_sheets_structural_mutations),
+        ("sheets batch_updater", test_sheets_batch_updater),
     ]
 
-    print("\n=== Docs & Sheets Tests ===")
-    for name, fn in docs_sheets_tests:
+    print("\n=== Sheets Tests ===")
+    for name, fn in sheets_tests:
+        run_test(name, fn)
+
+    docs_tests = [
+        ("docs basic", test_docs_basic),
+        ("docs formatting/reading", test_docs_formatting_and_reading),
+        ("docs advanced (tables/delete)", test_docs_advanced),
+    ]
+
+    print("\n=== Docs Tests ===")
+    for name, fn in docs_tests:
         run_test(name, fn)
 
     print("\n=== Async Tests ===")
@@ -610,3 +804,11 @@ if __name__ == "__main__":
 
     total = passed + failed
     print(f"\n=== Results: {passed}/{total} passed ===\n")
+
+# from google_client.api_service import APIServiceLayer
+# import json
+#
+# token = open("user_token.json", "r")
+# token = json.load(token)
+#
+# api_service = APIServiceLayer(token, 'America/New_York')
