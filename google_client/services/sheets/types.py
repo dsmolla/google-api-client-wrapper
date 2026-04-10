@@ -106,6 +106,14 @@ class CellRange(BaseModel):
         return result
 
 
+class Dimension(str, Enum):
+    ROWS = "ROWS"
+    COLUMNS = "COLUMNS"
+
+class SortOrder(str, Enum):
+    ASCENDING = "ASCENDING"
+    DESCENDING = "DESCENDING"
+
 class BorderStyle(str, Enum):
     """Supported border styles in Google Sheets."""
     NONE = "NONE"

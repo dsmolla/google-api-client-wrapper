@@ -1,6 +1,6 @@
 # Google API Client Wrapper
 
-A comprehensive Python wrapper for Google APIs, providing clean and intuitive access to Gmail, Google Drive, Google Calendar, and Google Tasks services with both synchronous and asynchronous implementations.
+A comprehensive Python wrapper for Google APIs, providing clean and intuitive access to Gmail, Google Drive, Google Calendar, Google Tasks, Google Docs, and Google Sheets services with both synchronous and asynchronous implementations.
 
 ## Installation
 
@@ -20,6 +20,8 @@ pip install git+https://github.com/dsmolla/google-api-client-wrapper.git
 - **Google Drive Service**: Upload, download, and manage files and folders
 - **Google Calendar Service**: Create, update, and manage calendar events
 - **Google Tasks Service**: Manage tasks and task lists
+- **Google Sheets Service**: Read, write, format, and batch-mutate spreadsheets
+- **Google Docs Service**: Create, read, and perform complex batch formatting and structural mutations on Google Documents
 - **Async Support**: Full async/await support for all services with concurrent batch operations
 - **OAuth2 Authentication**: Secure authentication flow with token management
 - **Query Builders**: Intuitive query building for each service
@@ -46,13 +48,13 @@ oauth_manager = GoogleOAuthManager(
 
 # Generate authorization URL
 auth_url, state = oauth_manager.generate_auth_url(
-    scopes=[Scopes.GMAIL, Scopes.DRIVE, Scopes.CALENDAR, Scopes.TASKS]
+    scopes=[Scopes.GMAIL, Scopes.DRIVE, Scopes.CALENDAR, Scopes.TASKS, Scopes.SHEETS]
 )
 
 # After user authorizes, exchange code for tokens
 user_info = oauth_manager.complete_auth_flow(
     code='authorization_code_from_callback',
-    scopes=[Scopes.GMAIL, Scopes.DRIVE, Scopes.CALENDAR, Scopes.TASKS]
+    scopes=[Scopes.GMAIL, Scopes.DRIVE, Scopes.CALENDAR, Scopes.TASKS, Scopes.SHEETS]
 )
 
 # Save user_info for future use
@@ -79,7 +81,7 @@ oauth_manager = GoogleOAuthManager(
 
 # Authenticate using local server - browser opens automatically!
 user_info = oauth_manager.authenticate_via_local_server(
-    scopes=[Scopes.GMAIL, Scopes.DRIVE, Scopes.CALENDAR, Scopes.TASKS]
+    scopes=[Scopes.GMAIL, Scopes.DRIVE, Scopes.CALENDAR, Scopes.TASKS, Scopes.SHEETS]
 )
 
 # Save credentials
@@ -134,6 +136,16 @@ event = calendar.create_event(
 # Access Tasks service
 tasks = api_service.tasks
 task = tasks.create_task(title="Review documents")
+
+# Access Sheets service
+sheets = api_service.sheets
+values = sheets.get_values(spreadsheet_id="your_spreadsheet_id", range_name="Sheet1!A1:B2")
+sheets.append_values_from_dicts("your_spreadsheet_id", "Sheet1!A1", [{"Name": "Alice", "Role": "Admin"}])
+
+# Access Docs service
+docs = api_service.docs
+new_doc = docs.create_document(title="Automated Report")
+docs.insert_table_with_data(new_doc.document_id, index=1, data=[["Column 1", "Column 2"]])
 ```
 
 ### Using Services (Asynchronous)
@@ -175,6 +187,15 @@ async def main():
     # Access async Tasks service
     tasks = api_service.async_tasks
     all_tasks = await tasks.list_tasks(show_completed=True)
+
+    # Access async Sheets service
+    sheets = api_service.async_sheets
+    values = await sheets.get_values(spreadsheet_id="your_spreadsheet_id", range_name="Sheet1!A1:B2")
+
+    # Access async Docs service
+    docs = api_service.async_docs
+    new_doc = await docs.create_document(title="Async Automated Report")
+    extracted_text = await docs.get_document_text(new_doc.document_id)
 
 # Run async code
 asyncio.run(main())
@@ -276,6 +297,8 @@ Each service has detailed documentation with examples and API reference:
 - **[Google Drive Service](google_client/services/drive/README.md)** - File and folder management
 - **[Google Calendar Service](google_client/services/calendar/README.md)** - Calendar and event management
 - **[Google Tasks Service](google_client/services/tasks/README.md)** - Task and task list management
+- **[Google Sheets Service](google_client/services/sheets/README.md)** - Advanced spreadsheet reading, writing, and batch mutation
+- **[Google Docs Service](google_client/services/docs/README.md)** - Precise document creation, abstract-syntax-tree parsing, and nested structural formatting
 
 ## Available Scopes
 
@@ -286,6 +309,8 @@ Scopes.GMAIL      # Full Gmail access
 Scopes.DRIVE      # Full Drive access
 Scopes.CALENDAR   # Full Calendar access
 Scopes.TASKS      # Full Tasks access
+Scopes.SHEETS     # Full Sheets access
+Scopes.DOCS       # Full Docs access
 ```
 
 ## Token Refresh
@@ -311,6 +336,8 @@ refreshed_token = api_service.refresh_token()
 - **[Drive API Reference](https://developers.google.com/drive/api)**
 - **[Calendar API Reference](https://developers.google.com/calendar/api)**
 - **[Tasks API Reference](https://developers.google.com/tasks/reference/rest)**
+- **[Sheets API Reference](https://developers.google.com/sheets/api/reference/rest)**
+- **[Docs API Reference](https://developers.google.com/docs/api/reference/rest)**
 
 ---
 
