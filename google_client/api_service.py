@@ -8,11 +8,15 @@ from .services.gmail import GmailApiService
 from .services.calendar import CalendarApiService
 from .services.tasks import TasksApiService
 from .services.drive import DriveApiService
+from .services.sheets import SheetsApiService
+from .services.docs import DocsApiService
 
 from .services.gmail import AsyncGmailApiService
 from .services.calendar import AsyncCalendarApiService
 from .services.drive import AsyncDriveApiService
 from .services.tasks import AsyncTasksApiService
+from .services.sheets import AsyncSheetsApiService
+from .services.docs import AsyncDocsApiService
 
 
 class APIServiceLayer:
@@ -27,11 +31,15 @@ class APIServiceLayer:
         self._calendar = None
         self._tasks = None
         self._drive = None
+        self._docs = None
+        self._sheets = None
 
         self._async_gmail = None
         self._async_calendar = None
         self._async_tasks = None
         self._async_drive = None
+        self._async_sheets = None
+        self._async_docs = None
 
         self.timezone = timezone
 
@@ -50,8 +58,8 @@ class APIServiceLayer:
     def refresh_token(self) -> dict:
         self._credentials.refresh(Request())
 
-        self._gmail, self._calendar, self._tasks, self._drive = None, None, None, None
-        self._async_gmail, self._async_calendar, self._async_tasks, self._async_drive = None, None, None, None
+        self._gmail, self._calendar, self._tasks, self._drive, self._docs, self._sheets = None, None, None, None, None, None
+        self._async_gmail, self._async_calendar, self._async_tasks, self._async_drive, self._async_sheets, self._async_docs = None, None, None, None, None, None
 
         return json.loads(self._credentials.to_json())
 
@@ -83,6 +91,17 @@ class APIServiceLayer:
         if self._drive is None:
             self._drive = DriveApiService(self._credentials, timezone=self.timezone)
         return self._drive
+    @property
+    def sheets(self):
+        if self._sheets is None:
+            self._sheets = SheetsApiService(self._credentials, timezone=self.timezone)
+        return self._sheets
+        
+    @property
+    def docs(self):
+        if self._docs is None:
+            self._docs = DocsApiService(self._credentials, timezone=self.timezone)
+        return self._docs
 
 
     @property
@@ -108,4 +127,16 @@ class APIServiceLayer:
         if self._async_drive is None:
             self._async_drive = AsyncDriveApiService(self._credentials, timezone=self.timezone)
         return self._async_drive
+
+    @property
+    def async_sheets(self):
+        if self._async_sheets is None:
+            self._async_sheets = AsyncSheetsApiService(self._credentials, timezone=self.timezone)
+        return self._async_sheets
+
+    @property
+    def async_docs(self):
+        if self._async_docs is None:
+            self._async_docs = AsyncDocsApiService(self._credentials, timezone=self.timezone)
+        return self._async_docs
 

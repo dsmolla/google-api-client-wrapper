@@ -177,6 +177,14 @@ class Scopes:
     DRIVE_PHOTOS_READONLY = 'https://www.googleapis.com/auth/drive.photos.readonly'
     DRIVE_SCRIPTS = 'https://www.googleapis.com/auth/drive.scripts'
 
+    # Docs scopes
+    DOCS = 'https://www.googleapis.com/auth/documents'
+    DOCS_READONLY = 'https://www.googleapis.com/auth/documents.readonly'
+
+    # Sheets scopes
+    SHEETS = 'https://www.googleapis.com/auth/spreadsheets'
+    SHEETS_READONLY = 'https://www.googleapis.com/auth/spreadsheets.readonly'
+
     # User info scopes
     USERINFO_EMAIL = 'https://www.googleapis.com/auth/userinfo.email'
     USERINFO_PROFILE = 'https://www.googleapis.com/auth/userinfo.profile'
